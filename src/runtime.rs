@@ -145,6 +145,7 @@ struct Mailbox {
 struct CancellationHub {
     generation: AtomicU64,
     sensitive: AtomicBool,
+    last_activity: Mutex<Option<Instant>>,
     #[cfg(any(windows, test))]
     os_locked: AtomicBool,
     #[cfg(windows)]
@@ -154,6 +155,17 @@ struct CancellationHub {
     socket_id: AtomicU64,
 }
 impl CancellationHub {
+    fn touch(&self) {
+        // UI activity never waits for the actor or an OS/file operation.
+        if let Ok(mut activity) = self.last_activity.try_lock() {
+            *activity = Some(Instant::now());
+        }
+    }
+    fn idle_expired(&self, timeout: Duration) -> bool {
+        self.last_activity.lock().map_or(true, |activity| {
+            activity.is_none_or(|last| last.elapsed() >= timeout)
+        })
+    }
     fn invalidate(&self) -> u64 {
         self.sensitive.store(false, Ordering::Release);
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -260,6 +272,9 @@ impl Runtime {
         let project = directories::ProjectDirs::from("org", "Hushlink", "Hushlink")
             .ok_or_else(|| anyhow::anyhow!("Der lokale App-Datenordner ist nicht verfügbar."))?;
         Ok(project.data_local_dir().join("profile.vault"))
+    }
+    pub fn record_activity(&self) {
+        self.hub.touch();
     }
     pub fn generation(&self) -> u64 {
         self.hub.generation.load(Ordering::Acquire)
@@ -587,6 +602,17 @@ impl Actor {
         self.snapshot();
         self.emit(Event::Busy(false));
     }
+    fn enforce_idle_lock(&mut self) {
+        let expired = self.vault.as_ref().is_some_and(|vault| {
+            self.hub.idle_expired(Duration::from_secs(
+                u64::from(vault.profile().settings.inactivity_minutes) * 60,
+            ))
+        });
+        if expired {
+            self.generation = self.hub.invalidate();
+            self.clear();
+        }
+    }
     fn run(mut self, commands: Receiver<Envelope>) {
         self.snapshot();
         loop {
@@ -595,6 +621,7 @@ impl Actor {
                 self.generation = generation;
                 self.clear();
             }
+            self.enforce_idle_lock();
             if self
                 .pending_since
                 .is_some_and(|since| since.elapsed() > Duration::from_secs(30))
@@ -686,6 +713,7 @@ impl Actor {
         Ok(())
     }
     fn after_unlock(&mut self) {
+        self.hub.touch();
         self.saved_profile = self.vault.as_ref().map(|v| v.profile().clone());
         // Pending/sent messages from a former connection cannot acquire an ACK in a new
         // Noise session. Keep their history and mark their delivery as uncertain/failed.
@@ -1788,6 +1816,30 @@ mod tests {
             _lease: None,
         });
         Ok(receiver)
+    }
+
+    #[test]
+    fn actor_inactivity_drops_vault_without_ui_frames() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let generation = actor.generation;
+        if let Some(vault) = &mut actor.vault {
+            vault.profile_mut().settings.inactivity_minutes = 1;
+        }
+        if let Ok(mut activity) = actor.hub.last_activity.lock() {
+            *activity = Some(Instant::now() - Duration::from_secs(61));
+        }
+        actor.enforce_idle_lock();
+        assert!(actor.vault.is_none());
+        assert!(!actor.view.unlocked);
+        assert!(actor.view.messages.is_empty());
+        assert!(actor.hub.generation.load(Ordering::Acquire) > generation);
+        actor.hub.touch();
+        assert!(
+            actor.vault.is_none(),
+            "activity cannot reopen a locked vault"
+        );
+        Ok(())
     }
 
     #[test]

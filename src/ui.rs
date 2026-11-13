@@ -1,4 +1,4 @@
-use crate::runtime::{Command, Event, Runtime, View, windows_session_locked};
+use crate::runtime::{Command, Event, Runtime, View};
 use crate::vault::MessageStatus;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use std::time::{Duration, Instant};
@@ -633,15 +633,18 @@ impl eframe::App for App {
             self.clear_locked_ui(ctx);
         }
         self.events();
-        if ctx.input(|i| !i.raw.events.is_empty()) {
-            self.last_activity = Instant::now();
-        }
+        // Check expiry before accepting new input after a suspended/occluded frame.
         if self.view.unlocked
-            && (windows_session_locked()
-                || self.last_activity.elapsed()
-                    >= Duration::from_secs(u64::from(self.view.inactivity_minutes.max(1)) * 60))
+            && self.last_activity.elapsed()
+                >= Duration::from_secs(u64::from(self.view.inactivity_minutes.max(1)) * 60)
         {
             self.lock(ctx);
+        }
+        if ctx.input(|i| !i.raw.events.is_empty()) {
+            self.last_activity = Instant::now();
+            if let Some(runtime) = &self.runtime {
+                runtime.record_activity();
+            }
         }
         if self.view.unlocked
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::L))
@@ -697,6 +700,24 @@ fn local_time(timestamp_ms: u64) -> String {
 // TextEdit retains an undo buffer. Drop all widget memory while retaining the
 // visual options; resetting those as well would shrink controls after unlock.
 fn clear_ui_memory(ctx: &egui::Context) {
+    fn wipe_events(events: &mut [egui::Event]) {
+        for event in events {
+            match event {
+                egui::Event::Text(text)
+                | egui::Event::Paste(text)
+                | egui::Event::Ime(egui::ImeEvent::Preedit(text) | egui::ImeEvent::Commit(text)) => {
+                    text.zeroize()
+                }
+                _ => {}
+            }
+        }
+    }
+    ctx.input_mut(|input| {
+        wipe_events(&mut input.events);
+        wipe_events(&mut input.raw.events);
+        input.events.clear();
+        input.raw.events.clear();
+    });
     ctx.memory_mut(|memory| {
         let options = memory.options.clone();
         *memory = egui::Memory::default();
