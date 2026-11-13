@@ -71,3 +71,26 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --verify-tag --target "$GITHUB_SHA" \
             --title "Hushlink $GITHUB_REF_NAME" --prerelease \
             --notes-file "docs/RELEASE-${GITHUB_REF_NAME}.md"
+  verify-published:
+    name: Download and verify published prerelease assets
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Independently download actual release assets and verify commit, hashes and PE
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/verify-release.py --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --directory work/published-verification
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: published-verification-${{ github.sha }}
+          path: |
+            work/published-verification/verification.json
+            work/published-verification/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

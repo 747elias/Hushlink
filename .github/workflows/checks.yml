@@ -20,7 +20,8 @@ jobs:
         run: |
           rustup toolchain install 1.91.1 --profile minimal --component rustfmt --component clippy --target x86_64-pc-windows-msvc
           rustc --version --verbose
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: rust-cache
         with:
           path: |
             ~/.cargo/registry
@@ -40,6 +41,15 @@ jobs:
         run: cargo test --locked --target x86_64-pc-windows-msvc
       - name: Build native Windows release EXE
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Cache successfully compiled dependencies before runtime smoke
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - name: Native Windows startup smoke
         shell: pwsh
         run: ./scripts/windows-smoke.ps1 -Executable target/x86_64-pc-windows-msvc/release/hushlink.exe
