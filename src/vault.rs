@@ -89,7 +89,7 @@ impl Zeroize for MessageStatus {
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
-    /// Zero disables inactivity locking. Windows session locking always applies.
+    /// Minutes until inactivity locking, in the inclusive range 1..=120.
     pub inactivity_minutes: u32,
 }
 
@@ -356,12 +356,12 @@ fn validate_new_password(password: &str) -> Result<()> {
 
 fn validate_profile(profile: &Profile) -> Result<()> {
     fn valid_name(name: &str) -> bool {
-        !name.trim().is_empty() && name.len() <= 256 && name.chars().count() <= 80
+        !name.trim().is_empty() && name.len() <= 80 && !name.chars().any(char::is_control)
     }
     if !valid_name(&profile.display_name)
         || profile.contacts.len() > MAX_CONTACTS
         || profile.messages.len() > MAX_MESSAGES
-        || profile.settings.inactivity_minutes > 240
+        || !(1..=120).contains(&profile.settings.inactivity_minutes)
     {
         return Err(VaultError::InvalidProfile);
     }
@@ -875,11 +875,42 @@ mod tests {
             Err(VaultError::InvalidProfile)
         ));
         invalid = profile();
-        invalid.settings.inactivity_minutes = 241;
-        assert!(matches!(
-            validate_profile(&invalid),
-            Err(VaultError::InvalidProfile)
-        ));
+        for minutes in [0, 121] {
+            invalid.settings.inactivity_minutes = minutes;
+            assert!(matches!(
+                validate_profile(&invalid),
+                Err(VaultError::InvalidProfile)
+            ));
+        }
+        for minutes in [1, 120] {
+            invalid.settings.inactivity_minutes = minutes;
+            assert!(validate_profile(&invalid).is_ok());
+        }
+        for name in [
+            "Nul\0Name".to_owned(),
+            "Tab\tName".to_owned(),
+            "x".repeat(81),
+            "漢".repeat(30),
+        ] {
+            invalid = profile();
+            invalid.display_name = name.clone();
+            assert!(matches!(
+                validate_profile(&invalid),
+                Err(VaultError::InvalidProfile)
+            ));
+            invalid = profile();
+            invalid.contacts[0].display_name = name;
+            assert!(matches!(
+                validate_profile(&invalid),
+                Err(VaultError::InvalidProfile)
+            ));
+        }
+        for name in ["x".repeat(80), "漢".repeat(26)] {
+            invalid = profile();
+            invalid.display_name = name.clone();
+            invalid.contacts[0].display_name = name;
+            assert!(validate_profile(&invalid).is_ok());
+        }
         assert!(!path.exists());
         Ok(())
     }
