@@ -14,13 +14,14 @@ pub fn run() -> eframe::Result {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/hushlink.png"))
         .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
+        centered: true,
         #[cfg(windows)]
         renderer: eframe::Renderer::Wgpu,
         #[cfg(windows)]
         wgpu_options: windows_graphics(),
         viewport: egui::ViewportBuilder::default()
             .with_title("Hushlink")
-            .with_inner_size([1060.0, 740.0])
+            .with_inner_size([960.0, 640.0])
             .with_min_inner_size([720.0, 540.0])
             .with_icon(icon),
         ..Default::default()
@@ -760,6 +761,20 @@ mod tests {
             pressed: true,
             repeat,
             modifiers,
+        }
+    }
+
+    #[test]
+    fn system_light_theme_does_not_override_dark_ui_after_password_memory_clear() {
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                system_theme: Some(egui::Theme::Light),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| assert!(ctx.style().visuals.dark_mode));
+            clear_ui_memory(&ctx);
         }
     }
 
