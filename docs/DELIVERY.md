@@ -10,7 +10,7 @@ No code-signing credentials are configured. An unsigned release must never be de
 
 ## Automated checks
 
-- `CI` runs on branch pushes and pull requests.
+- `CI` runs on branch pushes and pull requests. A separate path-filtered `RFCOMM technical spike` workflow compiles the small transport probe independently of unfinished UI code and unrelated source pushes.
 - A reusable `Required checks` workflow runs on a current Windows 2025 GitHub-hosted runner with Rust 1.91.1 and the native x64 MSVC target.
 - The isolated `tools/rfcomm-probe` is linked before UI/integration checks, so failures in unrelated UI code do not conceal Windows Bluetooth API errors. Compiling/linking this probe is not a hardware test.
 - The full checks require formatting, strict Clippy, locked dependency tests and a locked native release build.

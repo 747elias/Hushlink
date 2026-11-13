@@ -1,0 +1,43 @@
+name: RFCOMM technical spike
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'src/transport/**'
+      - 'tools/rfcomm-probe/**'
+      - '.github/workflows/rfcomm.yml'
+  pull_request:
+    paths:
+      - 'src/transport/**'
+      - 'tools/rfcomm-probe/**'
+      - '.github/workflows/rfcomm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rfcomm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile and link isolated Windows Classic RFCOMM probe
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned MSVC toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.91.1 --profile minimal --target x86_64-pc-windows-msvc
+      - name: Build listener, SDP service and connector API paths
+        run: cargo build --locked --manifest-path tools/rfcomm-probe/Cargo.toml --target x86_64-pc-windows-msvc --target-dir target/rfcomm-probe
+      - name: Run transport parser tests without radio access
+        run: cargo test --locked --manifest-path tools/rfcomm-probe/Cargo.toml --target x86_64-pc-windows-msvc --target-dir target/rfcomm-probe
+      - name: Record scope of evidence
+        shell: pwsh
+        run: |
+          'Windows MSVC probe compiled and linked. This is not a hardware or two-device Bluetooth test.' >> $env:GITHUB_STEP_SUMMARY
