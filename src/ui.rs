@@ -246,7 +246,7 @@ impl App {
                 }
                 let enter = ui.input_mut(take_plain_enter);
                 if ui.add_sized([width, 42.0], egui::Button::new(if existing { "Entsperren" } else { "Profil erstellen" }).fill(Color32::from_rgb(26, 85, 73))).clicked() || enter {
-                    if !existing && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
+                    if !existing && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.name.chars().any(char::is_control) || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
                         self.error = "Bitte gib einen Namen (höchstens 80 UTF-8-Bytes) und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();
                     } else {
                         let command = if existing { Command::Unlock { password: self.password.clone() } } else { Command::Create { name: self.name.trim().into(), password: self.password.clone() } };
@@ -387,8 +387,10 @@ impl App {
         ui.add_space(8.0);
         if let Some(pending) = &self.view.pending_incoming {
             let name = pending.name.clone();
+            let address = pending.address.clone();
             ui.group(|ui| {
                 ui.heading("Verbindungsanfrage");
+                ui.label(RichText::new(&address).small().color(MUTED));
                 ui.label(format!(
                     "{name} möchte sich verbinden. Ein Gerätename ist noch kein Identitätsnachweis."
                 ));
@@ -416,6 +418,7 @@ impl App {
         {
             ui.group(|ui| {
                     ui.heading("Vergleicht euren Sicherheitscode");
+                    ui.label(format!("Gegenstelle: {}", peer.name));
                     ui.label("Vergleicht alle Gruppen auf beiden PCs über einen unabhängigen Weg, zum Beispiel persönlich. Erst nach Bestätigung auf beiden Geräten wird der Chat freigegeben.");
                     ui.add_space(6.0);
                     ui.label(RichText::new(&peer.fingerprint).monospace().size(17.0).color(MINT));
@@ -582,7 +585,7 @@ impl App {
         egui::Window::new("Einstellungen").open(&mut open).collapsible(false).resizable(false).default_width(430.0).show(ctx, |ui| {
             ui.heading("Automatisch sperren");
             let mut minutes = self.view.inactivity_minutes.max(1);
-            if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Minuten")).changed() { self.command(Command::SetInactivity { minutes }); }
+            if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Min.")).changed() { self.command(Command::SetInactivity { minutes }); }
             ui.label(RichText::new("Beim Sperren der Windows-Sitzung wird Hushlink ebenfalls gesperrt. Offene Verbindungen werden beendet.").small().color(MUTED));
             ui.separator();
             ui.heading("Passwort ändern");
