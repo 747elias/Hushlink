@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 if ($Version -notmatch '^v\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$') { throw 'Invalid version tag' }
 if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'Invalid commit SHA' }
 $cargo = Get-Content Cargo.toml -Raw
-$packageVersion = [regex]::Match($cargo, '(?m)^version = "([^"]+)"$').Groups[1].Value
+$packageVersion = [regex]::Match($cargo, '(?m)^version = "([^\"]+)"\r?$').Groups[1].Value
 if ($Version -cne "v$packageVersion") { throw 'Tag does not match Cargo.toml version' }
 $builtCommit = (Get-Content build-artifact/build-commit.txt -Raw).Trim()
 if ($builtCommit -cne $Commit) { throw 'Build artifact was not produced for this commit' }
