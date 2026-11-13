@@ -1,0 +1,19 @@
+[package]
+name = "hushlink-rfcomm-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.100"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Devices_Bluetooth", "Win32_System_Com"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
