@@ -1,0 +1,45 @@
+[package]
+name = "hushlink"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Offline encrypted Bluetooth chat for Windows 11"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+anyhow = "=1.0.100"
+argon2 = "=0.5.3"
+chacha20poly1305 = "=0.10.1"
+crossbeam-channel = "=0.5.15"
+directories = "=6.0.0"
+eframe = { version = "=0.33.2", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+hex = "=0.4.3"
+rand = "=0.8.5"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+snow = "=0.10.0"
+thiserror = "=2.0.17"
+zeroize = { version = "=1.8.2", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Devices_Bluetooth", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem", "Win32_Security"] }
+
+[build-dependencies]
+winresource = "=0.1.23"
+
+[dev-dependencies]
+tempfile = "=3.23.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
