@@ -6,7 +6,7 @@ Downloads:
 - `Hushlink-v0.1.0-windows-x64.zip`: dieselbe EXE mit Kurzstart, Lizenz und Dokumentation.
 - `SHA256SUMS.txt`: SHA-256 beider Downloads.
 
-Voraussetzungen: Windows 11 x64, Bluetooth Classic/RFCOMM mit geeignetem Adapter und Windows-Treiber sowie eine funktionierende Desktop-Grafikumgebung. Bei Bedarf Geräte in Windows koppeln und System-Sichtbarkeit einschalten. Eine Paketregistrierung oder Rust-Installation wird nicht benötigt. Dateien sind unsigniert; Windows SmartScreen kann warnen.
+Voraussetzungen: Windows 11 x64, Bluetooth Classic/RFCOMM mit geeignetem Adapter und Windows-Treiber sowie eine funktionierende Direct3D-12-Desktop-Grafikumgebung (auch Windows-Softwareadapter). Bei Bedarf Geräte in Windows koppeln und System-Sichtbarkeit einschalten. Eine Paketregistrierung oder Rust-Installation wird nicht benötigt. Dateien sind unsigniert; Windows SmartScreen kann warnen.
 
 Der Release-Workflow führt vor der Veröffentlichung für genau den Tag-Commit `cargo fmt --check`, strenges Clippy, Tests und einen Windows-MSVC-Release-Build aus. Die Verpackung prüft Commit-Zuordnung, Windows-PE-Format sowie SHA-256 und die Gleichheit von ZIP- und Einzel-EXE. Diese Vorabversion wird nur nach erfolgreichen automatischen Checks veröffentlicht.
 

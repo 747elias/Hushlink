@@ -1,8 +1,7 @@
 {
+  "licenses/upstream/CC0-1.0.txt": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
   "licenses/upstream/clipboard-win-ed27008ae5d1-LICENSE.txt": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/ed27008ae5d1f10cfbb266de039f0fb35fd05a56/LICENSE",
   "licenses/upstream/egui-44cdd653e231-LICENSE-MIT.txt": "https://raw.githubusercontent.com/emilk/egui/44cdd653e2317d300fb8a6c9c36b03f23991e803/LICENSE-MIT",
   "licenses/upstream/egui-978ec6c8701a-LICENSE-MIT.txt": "https://raw.githubusercontent.com/emilk/egui/978ec6c8701a5bb6087f42d401d189d2bcf26d32/LICENSE-MIT",
-  "licenses/upstream/gl-rs-ea503e8d5fb6-LICENSE.txt": "https://raw.githubusercontent.com/brendanzab/gl-rs/ea503e8d5fb6d73c6030e6191ce738cd3bf3433e/LICENSE",
-  "licenses/upstream/gl-rs-f150967b1c44-LICENSE.txt": "https://raw.githubusercontent.com/brendanzab/gl-rs/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE",
   "licenses/upstream/profiling-8271551172eb-LICENSE-MIT.txt": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT"
 }

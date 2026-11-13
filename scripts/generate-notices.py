@@ -59,13 +59,23 @@ for package in sorted(packages, key=lambda p: (p["name"], p["version"])):
     folder = Path(package["manifest_path"]).parent
     files = [p for p in folder.iterdir() if p.is_file() and p.name.lower().startswith(("license", "copying", "notice"))]
     sources = [(path.relative_to(folder).as_posix(), path.read_text(encoding="utf-8", errors="replace")) for path in sorted(files)]
+    if not sources and package["name"] == "hexf-parse":
+        # This crate declares CC0 in its archive but ships no separate license.
+        # Retain that exact declaration plus Creative Commons' canonical text.
+        url = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt"
+        retained = UPSTREAM / "CC0-1.0.txt"
+        if not retained.exists():
+            subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", url, "--output", str(retained)], check=True)
+        provenance[retained.relative_to(ROOT).as_posix()] = url
+        sources.extend([("Cargo.toml.orig", (folder / "Cargo.toml.orig").read_text()),
+                        (url, retained.read_text(encoding="utf-8"))])
     if not sources:
         vcs = json.loads((folder / ".cargo_vcs_info.json").read_text())
         revision = vcs["git"]["sha1"]
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise SystemExit("Invalid upstream revision in crate archive")
         name = package["name"]
-        if name in {"ecolor", "eframe", "egui", "egui-winit", "egui_glow", "emath", "epaint", "epaint_default_fonts"}:
+        if name in {"ecolor", "eframe", "egui", "egui-winit", "egui-wgpu", "egui_glow", "emath", "epaint", "epaint_default_fonts"}:
             repo, filename = "emilk/egui", "LICENSE-MIT"
         elif name in {"gl_generator", "khronos_api"}:
             repo, filename = "brendanzab/gl-rs", "LICENSE"

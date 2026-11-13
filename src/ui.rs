@@ -14,6 +14,10 @@ pub fn run() -> eframe::Result {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/hushlink.png"))
         .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
+        #[cfg(windows)]
+        renderer: eframe::Renderer::Wgpu,
+        #[cfg(windows)]
+        wgpu_options: windows_graphics(),
         viewport: egui::ViewportBuilder::default()
             .with_title("Hushlink")
             .with_inner_size([1060.0, 740.0])
@@ -29,6 +33,25 @@ pub fn run() -> eframe::Result {
             Ok(Box::new(App::new()))
         }),
     )
+}
+
+#[cfg(windows)]
+fn windows_graphics() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::{egui_wgpu, wgpu};
+    let mut setup = egui_wgpu::WgpuSetupCreateNew::default();
+    setup.instance_descriptor.backends = wgpu::Backends::DX12;
+    // FXC uses Windows' built-in compiler; DynamicDxc would require distributing
+    // an additional dxcompiler.dll. DX12 can also select the system WARP adapter.
+    setup
+        .instance_descriptor
+        .backend_options
+        .dx12
+        .shader_compiler = wgpu::Dx12Compiler::Fxc;
+    setup.power_preference = wgpu::PowerPreference::LowPower;
+    egui_wgpu::WgpuConfiguration {
+        wgpu_setup: setup.into(),
+        ..Default::default()
+    }
 }
 
 fn configure(ctx: &egui::Context) {
