@@ -160,10 +160,8 @@ impl App {
         if let Some(runtime) = &self.runtime {
             runtime.lock();
         }
-        self.view = View {
-            profile_exists: true,
-            ..View::default()
-        };
+        self.view = View::default();
+        self.view.profile_exists = true;
         self.password.zeroize();
         self.confirmation.zeroize();
         self.new_password.zeroize();
@@ -243,11 +241,11 @@ impl App {
                 }
                 let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
                 if ui.add_sized([width, 42.0], egui::Button::new(if existing { "Entsperren" } else { "Profil erstellen" }).fill(Color32::from_rgb(26, 85, 73))).clicked() || enter {
-                    if !existing && (self.name.trim().is_empty() || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
-                        self.error = "Bitte gib einen Namen und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();
+                    if !existing && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
+                        self.error = "Bitte gib einen Namen (höchstens 80 UTF-8-Bytes) und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();
                     } else {
                         let command = if existing { Command::Unlock { password: self.password.clone() } } else { Command::Create { name: self.name.trim().into(), password: self.password.clone() } };
-                        if self.command(command) { self.busy = true; self.password.zeroize(); self.confirmation.zeroize(); }
+                        if self.command(command) { self.busy = true; self.password.zeroize(); self.confirmation.zeroize(); ui.ctx().memory_mut(|memory| *memory = egui::Memory::default()); }
                     }
                 }
             });
@@ -593,7 +591,7 @@ impl App {
             if ui.add_enabled(!self.busy, egui::Button::new("Passwort ändern")).clicked() {
                 if self.new_password.chars().count() < 12 || *self.new_password != *self.new_confirmation { self.error = "Das neue Passwort muss mindestens 12 Zeichen haben und mit der Bestätigung übereinstimmen.".into(); }
                 else if self.command(Command::ChangePassword { old: self.password.clone(), new: self.new_password.clone() }) {
-                    self.password.zeroize(); self.new_password.zeroize(); self.new_confirmation.zeroize();
+                    self.password.zeroize(); self.new_password.zeroize(); self.new_confirmation.zeroize(); ui.ctx().memory_mut(|memory| *memory = egui::Memory::default());
                 }
             }
             self.show_error(ui);

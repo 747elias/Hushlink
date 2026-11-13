@@ -6,7 +6,7 @@ rust-version = "1.91"
 publish = false
 
 [dependencies]
-anyhow = "=1.0.100"
+anyhow = "=1.0.104"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Devices_Bluetooth", "Win32_System_Com"] }

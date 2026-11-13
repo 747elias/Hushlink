@@ -27,3 +27,7 @@ Die 64-MiB-/3-Pass-Argon2id-Standardeinstellung verteuert Offline-Angriffe, verh
 ## Prüfungen
 
 Automatische Tests prüfen Handshake, gegenseitige Vertrauensfreigabe, Identitätswechsel, Manipulation, Wiederholung, Parsergrenzen, Abbruch und neue Sitzung sowie Tresor-Roundtrip, falsche Passwörter, Manipulation, Passwortwechsel, beschädigte Dateien und Klartextfreiheit mit künstlichen Testdaten. Welche Tests konkret liefen, ist im Release und in GitHub Actions festgehalten. Diese Prüfungen sind keine externe Sicherheitsprüfung. Die Hardware- und Windows-Bedienprüfungen sind im [manuellen Testablauf](docs/MANUAL-TEST.md) getrennt dokumentiert.
+
+## Abhängigkeitsprüfung dieser Vorabversion
+
+Ein interner Lauf mit cargo-audit 0.23.0 und RustSec-Datenbankstand vom 13. November 2026 meldete nach Aktualisierung der betroffenen anyhow-/rand-Versionen keine klassifizierten Schwachstellen und keine Unsoundness-Warnungen. Die transitive Schriftbibliothek `ttf-parser 0.25.1` ist als nicht mehr gepflegt gemeldet (RUSTSEC-2026-0192); es lag keine korrigierte Version im verwendeten egui-Abhängigkeitsbaum vor. Hushlink importiert keine Schriftdateien von Chatpartnern, sondern verwendet mitgelieferte und gegebenenfalls lokale Windows-Systemschriften. Die verbleibende Wartungswarnung ist kein externer Sicherheitsaudit. Neue Bibliotheks- und RustSec-Stände müssen bei Folgeversionen erneut geprüft werden.
