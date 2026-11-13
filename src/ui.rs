@@ -762,6 +762,15 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_renderer_has_a_compiled_direct3d_backend() {
+        assert!(
+            eframe::wgpu::Instance::enabled_backend_features()
+                .contains(eframe::wgpu::Backends::DX12)
+        );
+    }
+
     #[test]
     fn shift_enter_and_modified_enter_never_send_and_plain_enter_sends_once() {
         for modifiers in [

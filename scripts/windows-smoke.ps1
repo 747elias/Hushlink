@@ -8,7 +8,7 @@ try {
     Start-Sleep -Seconds 8
     $process.Refresh()
     if ($process.HasExited) {
-        throw "Hushlink exited during startup (code $($process.ExitCode)). Check desktop/OpenGL availability and runtime dependencies."
+        throw "Hushlink exited during startup (code $($process.ExitCode)). Check desktop/Direct3D availability and runtime dependencies."
     }
     if ($process.MainWindowHandle -eq 0) {
         Write-Warning 'The hosted desktop does not expose a main window handle; screenshot evidence must be assessed separately.'

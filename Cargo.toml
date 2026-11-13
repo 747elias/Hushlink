@@ -26,6 +26,8 @@ zeroize = { version = "=1.8.2", features = ["derive"] }
 eframe = { version = "=0.33.2", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 
 [target.'cfg(windows)'.dependencies]
+# eframe leaves native backend selection to the application. Keep this feature dependency.
+wgpu = { version = "=27.0.1", default-features = false, features = ["dx12"] }
 eframe = { version = "=0.33.2", default-features = false, features = ["default_fonts", "wgpu"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Devices_Bluetooth", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem", "Win32_Security"] }
 
