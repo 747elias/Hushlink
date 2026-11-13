@@ -1,0 +1,11 @@
+/target/
+/work/
+*.vault
+*.vault.*
+*.tmp
+*.log
+*.dmp
+.env
+.env.*
+/local-profiles/
+/test-secrets/
