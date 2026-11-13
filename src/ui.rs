@@ -11,12 +11,14 @@ const MUTED: Color32 = Color32::from_rgb(154, 175, 184);
 const MAX_TEXT: usize = 16 * 1024;
 
 pub fn run() -> eframe::Result {
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/hushlink.png"))
+        .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Hushlink")
             .with_inner_size([1060.0, 740.0])
             .with_min_inner_size([720.0, 540.0])
-            .with_icon(icon()),
+            .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
@@ -27,29 +29,6 @@ pub fn run() -> eframe::Result {
             Ok(Box::new(App::new()))
         }),
     )
-}
-
-fn icon() -> egui::IconData {
-    let mut rgba = vec![0; 64 * 64 * 4];
-    for y in 0..64_i32 {
-        for x in 0..64_i32 {
-            let bubble = (x - 32).pow(2) + (y - 29).pow(2) < 23 * 23;
-            let tail = (15..27).contains(&x) && (43..54).contains(&y) && x + y < 72;
-            let bar = (23..=41).contains(&x) && ((23..=26).contains(&y) || (33..=36).contains(&y));
-            let c = if (bubble || tail) && !bar {
-                MINT
-            } else {
-                BACKGROUND
-            };
-            let i = ((y * 64 + x) * 4) as usize;
-            rgba[i..i + 4].copy_from_slice(&[c.r(), c.g(), c.b(), 255]);
-        }
-    }
-    egui::IconData {
-        rgba,
-        width: 64,
-        height: 64,
-    }
 }
 
 fn configure(ctx: &egui::Context) {
@@ -96,6 +75,7 @@ fn configure(ctx: &egui::Context) {
 
 struct App {
     runtime: Option<Runtime>,
+    generation: u64,
     view: View,
     busy: bool,
     error: String,
@@ -119,8 +99,10 @@ impl App {
             Ok(path) => (Some(Runtime::new(path)), String::new()),
             Err(_) => (None, "Der lokale App-Datenordner ist nicht verfügbar. Prüfe dein Windows-Benutzerprofil.".into()),
         };
+        let generation = runtime.as_ref().map_or(0, Runtime::generation);
         Self {
             runtime,
+            generation,
             view: View::default(),
             busy: false,
             error,
@@ -159,7 +141,12 @@ impl App {
     fn lock(&mut self, ctx: &egui::Context) {
         if let Some(runtime) = &self.runtime {
             runtime.lock();
+            self.generation = runtime.generation();
         }
+        self.clear_locked_ui(ctx);
+    }
+
+    fn clear_locked_ui(&mut self, ctx: &egui::Context) {
         self.view = View::default();
         self.view.profile_exists = true;
         self.password.zeroize();
@@ -617,6 +604,11 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let generation = self.runtime.as_ref().map_or(0, Runtime::generation);
+        if generation != self.generation {
+            self.generation = generation;
+            self.clear_locked_ui(ctx);
+        }
         self.events();
         if ctx.input(|i| !i.raw.events.is_empty()) {
             self.last_activity = Instant::now();

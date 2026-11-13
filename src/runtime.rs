@@ -15,6 +15,9 @@ use std::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+#[cfg(windows)]
+mod windows_lock;
+
 const COMMAND_CAPACITY: usize = 64;
 const FRAME_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_NETWORK_FRAME: usize = protocol::MAX_FRAME;
@@ -141,11 +144,34 @@ struct Mailbox {
 #[derive(Default)]
 struct CancellationHub {
     generation: AtomicU64,
+    sensitive: AtomicBool,
+    #[cfg(any(windows, test))]
+    os_locked: AtomicBool,
+    #[cfg(windows)]
+    watcher_ready: AtomicBool,
     flags: Mutex<Vec<Arc<AtomicBool>>>,
     sockets: Mutex<Vec<(u64, transport::CancelHandle)>>,
     socket_id: AtomicU64,
 }
 impl CancellationHub {
+    fn invalidate(&self) -> u64 {
+        self.sensitive.store(false, Ordering::Release);
+        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.cancel_all();
+        generation
+    }
+    #[cfg(any(windows, test))]
+    fn record_windows_lock(&self) {
+        self.os_locked.store(true, Ordering::Release);
+        self.invalidate();
+    }
+    #[cfg(any(windows, test))]
+    fn observe_windows_state(&self, locked: bool) {
+        self.os_locked.store(locked, Ordering::Release);
+        if locked && self.sensitive.swap(false, Ordering::AcqRel) {
+            self.invalidate();
+        }
+    }
     fn flag(&self, generation: u64) -> Arc<AtomicBool> {
         let flag = Arc::new(AtomicBool::new(false));
         if let Ok(mut flags) = self.flags.lock() {
@@ -214,6 +240,11 @@ impl Runtime {
         let (tx, events) = bounded(COMMAND_CAPACITY);
         let hub = Arc::new(CancellationHub::default());
         hub.generation.store(1, Ordering::Release);
+        #[cfg(windows)]
+        {
+            hub.os_locked.store(true, Ordering::Release);
+            windows_lock::start(Arc::downgrade(&hub));
+        }
         let worker_hub = hub.clone();
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
         let worker_mailbox = mailbox.clone();
@@ -230,12 +261,26 @@ impl Runtime {
             .ok_or_else(|| anyhow::anyhow!("Der lokale App-Datenordner ist nicht verfügbar."))?;
         Ok(project.data_local_dir().join("profile.vault"))
     }
+    pub fn generation(&self) -> u64 {
+        self.hub.generation.load(Ordering::Acquire)
+    }
     pub fn send(&self, command: Command) -> Result<(), String> {
         if matches!(command, Command::Lock) {
             self.lock();
             return Ok(());
         }
         let generation = self.hub.generation.load(Ordering::Acquire);
+        if matches!(command, Command::Create { .. } | Command::Unlock { .. }) {
+            #[cfg(windows)]
+            if !self.hub.watcher_ready.load(Ordering::Acquire)
+                || self.hub.os_locked.load(Ordering::Acquire)
+            {
+                return Err("Die Windows-Sperrüberwachung ist noch nicht bereit oder die Sitzung ist gesperrt. Bitte kurz warten und erneut versuchen.".into());
+            }
+            // Covers queued unlocks as well as active KDF work. A lock event
+            // invalidates the generation even before the actor receives this job.
+            self.hub.sensitive.store(true, Ordering::Release);
+        }
         self.commands
             .try_send(Envelope {
                 generation,
@@ -250,8 +295,7 @@ impl Runtime {
     }
     /// Immediately invalidates all old jobs/events and cancels open Bluetooth sockets.
     pub fn lock(&self) {
-        let generation = self.hub.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        self.hub.cancel_all();
+        let generation = self.hub.invalidate();
         while self.events.try_recv().is_ok() {}
         if let Ok(mut mailbox) = self.mailbox.lock() {
             *mailbox = Mailbox::default();
@@ -285,8 +329,7 @@ impl Runtime {
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.hub.generation.fetch_add(1, Ordering::AcqRel);
-        self.hub.cancel_all();
+        self.hub.invalidate();
         let _ = self.commands.try_send(Envelope {
             generation: self.hub.generation.load(Ordering::Acquire),
             command: Command::Shutdown,
@@ -520,6 +563,7 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.hub.sensitive.store(false, Ordering::Release);
         self.peer = None;
         if let Some((stream, mut device, _lease)) = self.pending.take() {
             stream.cancel_handle().cancel();
@@ -570,7 +614,10 @@ impl Actor {
                     let Ok(mut envelope) = item else { self.hub.cancel_all(); break; };
                     if matches!(envelope.command, Command::Shutdown) { self.hub.cancel_all(); break; }
                     if envelope.generation != self.generation { continue; }
-                    if let Err(error) = self.command(&mut envelope.command) { self.error(error); }
+                    if let Err(error) = self.command(&mut envelope.command) {
+                        if self.vault.is_none() { self.hub.sensitive.store(false, Ordering::Release); }
+                        self.error(error);
+                    }
                     self.snapshot();
                 }
                 recv(self.background) -> item => {
@@ -598,6 +645,7 @@ impl Actor {
                         && !name.chars().any(char::is_control),
                     "Bitte einen Anzeigenamen mit 1 bis 80 UTF-8-Bytes eingeben."
                 );
+                self.hub.sensitive.store(true, Ordering::Release);
                 self.emit(Event::Busy(true));
                 let identity = protocol::IdentityKey::generate()?;
                 let profile = vault::Profile::new(
@@ -615,6 +663,7 @@ impl Actor {
             }
             Command::Unlock { password } => {
                 anyhow::ensure!(self.vault.is_none(), "Der Tresor ist bereits entsperrt.");
+                self.hub.sensitive.store(true, Ordering::Release);
                 self.emit(Event::Busy(true));
                 let result = vault::Vault::open(&self.path, password.as_str());
                 self.emit(Event::Busy(false));
@@ -1527,6 +1576,40 @@ pub fn windows_session_locked() -> bool {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    #[test]
+    fn native_lock_event_invalidates_queued_unlock_even_after_windows_unlocks() {
+        let hub = CancellationHub::default();
+        hub.generation.store(1, Ordering::Release);
+        let queued_generation = hub.generation.load(Ordering::Acquire);
+        let cancel = hub.flag(queued_generation);
+        // The WTS event is retained even when no sensitive worker has started.
+        hub.record_windows_lock();
+        hub.observe_windows_state(false);
+        assert_eq!(hub.generation.load(Ordering::Acquire), 2);
+        assert_ne!(queued_generation, hub.generation.load(Ordering::Acquire));
+        assert!(cancel.load(Ordering::Acquire));
+        assert!(!hub.os_locked.load(Ordering::Acquire));
+        assert!(!hub.sensitive.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn lock_state_fallback_cancels_active_work_once_without_ui_frames() {
+        let hub = CancellationHub::default();
+        hub.generation.store(7, Ordering::Release);
+        hub.sensitive.store(true, Ordering::Release);
+        let cancel = hub.flag(7);
+        hub.observe_windows_state(true);
+        assert_eq!(hub.generation.load(Ordering::Acquire), 8);
+        assert!(cancel.load(Ordering::Acquire));
+        hub.observe_windows_state(true);
+        assert_eq!(hub.generation.load(Ordering::Acquire), 8);
+        hub.observe_windows_state(false);
+        assert!(
+            !hub.sensitive.load(Ordering::Acquire),
+            "unlock must not restore a vault"
+        );
+    }
+
     #[test]
     fn partial_reads_survive_timeouts_and_preserve_unicode() {
         struct Fragmented {
