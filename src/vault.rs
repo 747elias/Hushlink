@@ -664,6 +664,9 @@ mod tests {
             &initial[BASE_HEADER_LEN..HEADER_LEN],
             &saved[BASE_HEADER_LEN..HEADER_LEN]
         );
+        // Windows file locks are mandatory: release the vault lock before
+        // reading every persisted file, including the lock file itself.
+        drop(vault);
         for entry in fs::read_dir(directory.path())? {
             let contents = fs::read(entry?.path())?;
             for secret in [
@@ -679,7 +682,6 @@ mod tests {
                 );
             }
         }
-        drop(vault);
         let reopened = Vault::open(&path, PASSWORD)?;
         assert_eq!(reopened.profile().display_name, "Künstliche Änne 🦊");
         assert_eq!(reopened.profile().identity_private, [0x31; 32]);
