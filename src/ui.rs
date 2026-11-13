@@ -55,6 +55,7 @@ fn windows_graphics() -> eframe::egui_wgpu::WgpuConfiguration {
 }
 
 fn configure(ctx: &egui::Context) {
+    ctx.set_theme(egui::Theme::Dark);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BACKGROUND;
     visuals.window_fill = PANEL;
