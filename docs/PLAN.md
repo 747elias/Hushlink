@@ -22,3 +22,13 @@
 - Internal dependency audit corrected two unsoundness advisories by updating anyhow/rand. Remaining `ttf-parser` maintenance warning documented in SECURITY.md.
 - Native Windows startup smoke and screenshot capture added to required checks. Cloud desktop control tool failed to initialize (`gaas-browser node_repl sandbox cannot be disabled`); investigating direct local X11 testing.
 - Remaining: full integration checks, UI inspection/fixes, release-tag checks, prerelease and independent downloads verification.
+
+## Release candidate validated
+
+- Application modules and requested one-to-one workflows implemented. No production test transport or IP fallback.
+- Native WTS session notifications and background inactivity locking close sessions without relying on UI frames. UI text/undo/input buffers are cleared, and Windows Light mode cannot override the dark UI.
+- Linux: formatting, strict Clippy and 38 tests passed. Real X11 first-start/unlock/password-change/lock/small-window checks passed with synthetic profiles only.
+- Windows: run 43496556227 for `8b283ccc32543c8a53330cea109717ecbaaad95d` passed all required checks, 39 tests, native MSVC release build, eight-second native startup, x64 GUI PE verification, complete EXE/ZIP/SHA-256 prospective packaging.
+- Native startup defects (OpenGL driver limitation, missing explicit DX12 backend), Windows mandatory-lock test assumptions and CRLF version parsing were corrected and pushed; no checks were skipped.
+- Final step: publish v0.1.0 through the gated tag workflow, rerun exact-commit checks and independently verify the actual published downloads. The workflow records post-publication verification evidence.
+- Physical two-PC Bluetooth and actual Win+L/Windows scaling acceptance remain unperformed; docs/MANUAL-TEST.md is the concrete checklist.

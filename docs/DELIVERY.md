@@ -6,7 +6,7 @@ Shipping target: Windows 11 x64, `x86_64-pc-windows-msvc`. The pinned Rust toolc
 
 The ZIP includes `THIRD_PARTY_NOTICES.md`, font notices and the pinned Rust standard-library notices. Regenerate with `python scripts/generate-notices.py` after dependency updates; CI checks that the notices match Cargo.lock.
 
-The EXE is a Windows GUI application with an original embedded ICO and Windows version resources. The icon's editable generator is `scripts/generate-icon.py` (Pillow is needed only to regenerate the image). The normal build does not need Python or Pillow installed on the end user's PC. The Windows UI uses eframe’s wgpu Direct3D12 backend, with the system FXC shader compiler and hardware or Windows WARP software adapter. It does not need an external dxcompiler.dll, Vulkan loader or modern OpenGL driver. Linux development UI uses glow. The switch followed an actual failed native startup on the hosted Windows runner (OpenGL 1.1), rather than weakening the startup gate. A functioning Windows desktop/Direct3D12 environment is required. See [wgpu’s compiler documentation](https://docs.rs/wgpu/27.0.1/wgpu/enum.Dx12Compiler.html) and [Microsoft WARP](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/directx-warp).
+The EXE is a Windows GUI application with an original embedded ICO and Windows version resources. The icon's editable generator is `scripts/generate-icon.py` (Pillow is needed only to regenerate the image). The normal build does not need Python or Pillow installed on the end user's PC. The Windows UI uses eframe’s wgpu Direct3D12 backend, with the system FXC shader compiler and hardware or Windows WARP software adapter. It does not need an external dxcompiler.dll, Vulkan loader or modern OpenGL driver. Linux development UI uses glow. An actual failed native startup on the hosted Windows runner exposed an OpenGL 1.1 driver. A functioning Windows desktop/Direct3D12 environment is required. See [wgpu’s compiler documentation](https://docs.rs/wgpu/27.0.1/wgpu/enum.Dx12Compiler.html) and [Microsoft WARP](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/directx-warp).
 
 No code-signing credentials are configured. An unsigned release must never be described as trusted-publisher signed; Windows may show SmartScreen warnings. Do not disable protection globally to use it.
 
@@ -28,4 +28,8 @@ Pushing a `v*` tag starts the `Release` workflow. The tag's exact commit reruns 
 
 The gate proves automated checks for a particular commit and the origin/structure of the generated artifact. It proves neither two-device Bluetooth behavior nor an external security audit. Those limits must remain in the release notes.
 
-After publication, independently download all assets, compare SHA-256, inspect PE format, and verify the release tag resolves to the checked commit. Record the run URL and release URL. Never claim publication based only on a pushed tag.
+After publication, the separate read-only verification job independently downloads all actual release assets and records JSON evidence. Independently download all assets, compare SHA-256, inspect PE format, and verify the release tag resolves to the checked commit. Record the run URL and release URL. Never claim publication based only on a pushed tag.
+
+## Windows session guard
+
+The dedicated message-only HWND registers WTS notifications for this session and handles LOCK events independently of the UI. A timer supplements state checks and releases the worker after owner drop. Registration failures keep the vault locked and are retried. Inactivity is enforced in the background actor as well. API reference: [WTSRegisterSessionNotification](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsregistersessionnotification).

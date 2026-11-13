@@ -77,3 +77,30 @@ bekannt wären.
   Nachrichten, wenn der Tresor später zugänglich wird.
 - Sichtbarkeit, Bluetooth-Adressen und Verkehrsmuster bleiben Metadaten.
   Hushlink verspricht keine Anonymität und keine sichere physische SSD-Löschung.
+
+## Abschliessende native Prüfung
+
+Die Sitzungsüberwachung verwendet zusätzlich zu einer Zustandsabfrage ein eigenes
+natives Nachrichtenfenster mit `WTSRegisterSessionNotification` auf einem separaten
+Thread. `WM_WTSSESSION_CHANGE` mit LOCK verwirft auch noch wartende
+Entsperrversuche durch eine neue Generation; UNLOCK stellt keine Sitzung wieder
+her. Die UI vergleicht diese Generation vor der Anzeige und leert dann eigene
+Klartext-, Passwort- und Widget-Zustände. Das hängt nicht vom Repaint-Takt ab.
+Ein Windows-Test sendet eine künstliche Sperrnachricht durch die echte native
+Warteschlange und prüft Registrierung, Behandlung und Thread-Abbau; er ist kein
+Nachweis eines tatsächlichen Win+L-Vorgangs. Die unabhängige interne Nachprüfung
+von FFI-Lebensdauer, Reentranz und Generationsübergängen fand keinen konkreten
+Blocker.
+
+Die Windows-Oberfläche verwendet Direct3D12 über egui/eframe statt des auf dem
+Hosted-Runner unzureichenden OpenGL-Treibers. Der ausdrücklich gewählte
+System-Shadercompiler FXC benötigt keine zusätzliche `dxcompiler.dll`; Windows
+kann den WARP-Softwareadapter verwenden. Eine erneute RustSec-Prüfung des
+aktualisierten Lockfiles meldete wiederum keine Sicherheitslücken oder
+Unsoundness-Warnungen; der dokumentierte ttf-parser-Wartungshinweis bleibt.
+
+Auch die Inaktivitätssperre wird vom Hintergrundakteur kontrolliert; ein
+monotoner Aktivitätszeitpunkt und ein Regressionstest decken den Fall ohne UI-
+Frames ab. Bei Rückkehr nach einer langen Framepause wird die Frist vor neuer
+Eingabe geprüft. Beim Sperren und nach Passwortübergabe werden auch Text-,
+Clipboard-Paste- und IME-Eingabepuffer des aktuellen egui-Frames gelöscht.

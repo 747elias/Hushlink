@@ -31,3 +31,5 @@ Automatische Tests prüfen Handshake, gegenseitige Vertrauensfreigabe, Identitä
 ## Abhängigkeitsprüfung dieser Vorabversion
 
 Ein interner Lauf mit cargo-audit 0.23.0 und RustSec-Datenbankstand vom 13. November 2026 meldete nach Aktualisierung der betroffenen anyhow-/rand-Versionen keine klassifizierten Schwachstellen und keine Unsoundness-Warnungen. Die transitive Schriftbibliothek `ttf-parser 0.25.1` ist als nicht mehr gepflegt gemeldet (RUSTSEC-2026-0192); es lag keine korrigierte Version im verwendeten egui-Abhängigkeitsbaum vor. Hushlink importiert keine Schriftdateien von Chatpartnern, sondern verwendet mitgelieferte und gegebenenfalls lokale Windows-Systemschriften. Die verbleibende Wartungswarnung ist kein externer Sicherheitsaudit. Neue Bibliotheks- und RustSec-Stände müssen bei Folgeversionen erneut geprüft werden.
+
+Die entwicklungsbegleitende [interne Codeprüfung](docs/SECURITY-REVIEW.md) und der konkrete [Prüfstand](docs/VALIDATION.md) sind dokumentiert.
