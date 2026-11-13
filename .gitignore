@@ -9,3 +9,8 @@
 .env.*
 /local-profiles/
 /test-secrets/
+
+/build-artifact/
+/release-assets/
+/package-stage/
+/package-verification/
