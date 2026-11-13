@@ -20,8 +20,9 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item build-artifact/hushlink.exe "release-assets/$baseName.exe"
 Copy-Item build-artifact/hushlink.exe "$stage/$baseName.exe"
 Copy-Item docs/QUICKSTART.md "$stage/KURZSTART.md"
-Copy-Item README.md, SECURITY.md, LICENSE, CHANGELOG.md $stage
-Copy-Item docs/PROTOCOL.md, docs/VAULT.md, docs/BLUETOOTH.md $stage
+Copy-Item README.md, SECURITY.md, LICENSE, CHANGELOG.md, AGENTS.md $stage
+# Preserve relative README links and include the two-PC hardware test procedure.
+Copy-Item docs "$stage/docs" -Recurse
 Copy-Item "docs/RELEASE-$Version.md" "$stage/RELEASE-NOTES.md"
 [IO.File]::WriteAllText("$pwd/$stage/BUILD-COMMIT.txt", "$Commit`n", [Text.UTF8Encoding]::new($false))
 Compress-Archive -Path "$stage/*" -DestinationPath "release-assets/$baseName.zip" -CompressionLevel Optimal
