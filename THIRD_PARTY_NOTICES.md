@@ -4,6 +4,8 @@ This file preserves license/copyright texts for the locked Windows normal/build 
 
 Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `c954abed98550e39f9efac9be3ea0ecf226e45a4f4a7c6268edd948a05bc99fd`.
 
+The lockfile hash normalizes CRLF to LF so Windows checkout line endings do not change dependency identity.
+
 Generated with `python scripts/generate-notices.py`; licenses missing from crate archives are retained from the exact upstream VCS revision recorded in the archive. See [source provenance](licenses/upstream-sources.json).
 
 The pinned Rust toolchain's [standard-library notices](licenses/rust-std/COPYRIGHT-library.html) and license texts are included separately.
