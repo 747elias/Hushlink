@@ -190,11 +190,15 @@ impl App {
                         self.name.zeroize();
                         self.last_activity = Instant::now();
                     }
-                    if self.view.peer.as_ref().map(|p| &p.id) != view.peer.as_ref().map(|p| &p.id) {
+                    let changed_peer =
+                        self.view.peer.as_ref().map(|p| &p.id) != view.peer.as_ref().map(|p| &p.id);
+                    if changed_peer {
                         self.fingerprint_checked = false;
                     }
                     if let Some(peer) = &view.peer {
-                        self.selected = Some(peer.id.clone());
+                        if !peer.id.is_empty() && (changed_peer || self.selected.is_none()) {
+                            self.selected = Some(peer.id.clone());
+                        }
                     }
                     self.view = view;
                 }
