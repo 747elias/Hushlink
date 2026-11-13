@@ -244,7 +244,7 @@ impl App {
                     ui.label(RichText::new("Mindestens 12 Zeichen. Verwende möglichst eine lange, einzigartige Passphrase.").small().color(MUTED));
                     ui.label(RichText::new("Ohne Wiederherstellung: Ein vergessenes Passwort bedeutet den Verlust deines Profils und Verlaufs.").color(Color32::from_rgb(237, 194, 131)));
                 }
-                let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                let enter = ui.input_mut(take_plain_enter);
                 if ui.add_sized([width, 42.0], egui::Button::new(if existing { "Entsperren" } else { "Profil erstellen" }).fill(Color32::from_rgb(26, 85, 73))).clicked() || enter {
                     if !existing && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
                         self.error = "Bitte gib einen Namen (höchstens 80 UTF-8-Bytes) und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();
@@ -273,7 +273,7 @@ impl App {
         ui.label(RichText::new("HUSH↔LINK").size(22.0).strong().color(MINT));
         ui.label(RichText::new(&self.view.profile_name).color(MUTED));
         ui.add_space(10.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("Sperren").clicked() {
                 self.lock(ui.ctx());
             }
@@ -539,8 +539,7 @@ impl App {
                         egui::Key::Enter,
                     ))),
             );
-            let enter = response.has_focus()
-                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            let enter = response.has_focus() && ui.input_mut(take_plain_enter);
             let valid = !self.composer.trim().is_empty() && self.composer.len() <= MAX_TEXT;
             ui.horizontal(|ui| {
                 ui.label(
@@ -685,4 +684,70 @@ fn clear_ui_memory(ctx: &egui::Context) {
         *memory = egui::Memory::default();
         memory.options = options;
     });
+}
+
+// egui::consume_key uses logical matching and ignores extra Shift/Alt. Sending
+// must match exactly, otherwise Shift+Enter both inserts a newline and sends.
+fn take_plain_enter(input: &mut egui::InputState) -> bool {
+    let mut pressed = false;
+    input.events.retain(|event| {
+        if let egui::Event::Key {
+            key: egui::Key::Enter,
+            pressed: true,
+            repeat,
+            modifiers,
+            ..
+        } = event
+            && modifiers.matches_exact(egui::Modifiers::NONE)
+        {
+            pressed |= !repeat;
+            false
+        } else {
+            true
+        }
+    });
+    pressed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enter(modifiers: egui::Modifiers, repeat: bool) -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn shift_enter_and_modified_enter_never_send_and_plain_enter_sends_once() {
+        for modifiers in [
+            egui::Modifiers::SHIFT,
+            egui::Modifiers::ALT,
+            egui::Modifiers::CTRL,
+            egui::Modifiers::COMMAND,
+        ] {
+            let mut input = egui::InputState::default();
+            input.events.push(enter(modifiers, false));
+            assert!(!take_plain_enter(&mut input));
+            assert_eq!(
+                input.events.len(),
+                1,
+                "newline event must remain available to TextEdit"
+            );
+        }
+        let mut input = egui::InputState::default();
+        input.events.push(enter(egui::Modifiers::NONE, false));
+        assert!(take_plain_enter(&mut input));
+        assert!(!take_plain_enter(&mut input));
+        input.events.push(enter(egui::Modifiers::NONE, true));
+        assert!(
+            !take_plain_enter(&mut input),
+            "holding Enter must not trigger another send"
+        );
+    }
 }
