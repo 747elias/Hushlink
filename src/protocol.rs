@@ -909,6 +909,40 @@ mod tests {
     }
 
     #[test]
+    fn handshake_authentication_rejects_modified_responder_message() {
+        struct Tampered(MemoryPipe);
+        impl Read for Tampered {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                self.0.read(output)
+            }
+        }
+        impl Write for Tampered {
+            fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+                let mut changed = input.to_vec();
+                if changed.len() > 32 {
+                    let last = changed.len() - 1;
+                    changed[last] ^= 0x80;
+                }
+                self.0.write(&changed)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                self.0.flush()
+            }
+        }
+        let (mut a, b) = memory_pair();
+        let identity = IdentityKey::from_private(&[7; 32]).unwrap();
+        let other = IdentityKey::from_private(&[9; 32]).unwrap();
+        let responder =
+            std::thread::spawn(move || handshake(&mut Tampered(b), &other, Role::Responder));
+        assert!(matches!(
+            handshake(&mut a, &identity, Role::Initiator),
+            Err(ProtocolError::Crypto)
+        ));
+        drop(a);
+        assert!(responder.join().unwrap().is_err());
+    }
+
+    #[test]
     fn truncated_handshake_and_wrong_protocol_magic_fail() {
         let mut incorrect = Cursor::new(vec![0_u8; 64]);
         let identity = IdentityKey::from_private(&[7; 32]).unwrap();

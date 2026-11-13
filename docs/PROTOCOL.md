@@ -77,7 +77,9 @@ require a deliberate contact reset and a fresh connection for reverification;
 `check_contact(None)` cannot revive the blocked session. Only mutually
 confirmed identities are saved as trusted contacts in the encrypted vault.
 Known contacts still exchange local and remote confirmations on every new
-session; this keeps the gate explicit and avoids relying on Bluetooth names.
+session; the actor may issue the local confirmation using the previously stored
+human trust after matching the pinned key. Both current-session authenticated
+confirmations remain necessary. Bluetooth names cannot authorize a connection.
 
 ## Fail-closed handling
 
@@ -92,7 +94,10 @@ use the same authenticated encryption as chats.
 The `Session` API validates protocol state; the actor additionally owns session
 cancellation, acceptance/rejection, durable storage, trust persistence and
 lock generation checks. Lock must drop all sessions, queued plaintext work and
-UI copies. Zeroization is best-effort in a process with compiler, graphics,
+UI copies. Resolver adapters delegate all cryptography to snow and overwrite
+its default DH/cipher key slots through the library API on drop. snow internal
+handshake chaining/transcript buffers and temporary primitive copies are not
+fully under application control. Zeroization is best-effort with compiler, graphics,
 OS paging and crash-dump limitations; an unlocked or compromised endpoint can
 expose all displayed content.
 
