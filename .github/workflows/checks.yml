@@ -30,6 +30,8 @@ jobs:
           restore-keys: windows-msvc-rust-1.91.1-v1-
       - name: Compile and link isolated Classic RFCOMM API probe
         run: cargo build --locked --manifest-path tools/rfcomm-probe/Cargo.toml --target x86_64-pc-windows-msvc --target-dir target/rfcomm-probe
+      - name: Check distributed dependency notices
+        run: python scripts/check-notices.py
       - name: Format
         run: cargo fmt --check
       - name: Strict lint

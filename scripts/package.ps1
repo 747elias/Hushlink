@@ -11,6 +11,8 @@ $packageVersion = [regex]::Match($cargo, '(?m)^version = "([^"]+)"$').Groups[1].
 if ($Version -cne "v$packageVersion") { throw 'Tag does not match Cargo.toml version' }
 $builtCommit = (Get-Content build-artifact/build-commit.txt -Raw).Trim()
 if ($builtCommit -cne $Commit) { throw 'Build artifact was not produced for this commit' }
+python scripts/check-notices.py
+if ($LASTEXITCODE -ne 0) { throw 'Dependency notices are stale' }
 python scripts/check-pe.py build-artifact/hushlink.exe
 if ($LASTEXITCODE -ne 0) { throw 'PE validation failed' }
 $baseName = "Hushlink-$Version-windows-x64"
@@ -20,7 +22,8 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item build-artifact/hushlink.exe "release-assets/$baseName.exe"
 Copy-Item build-artifact/hushlink.exe "$stage/$baseName.exe"
 Copy-Item docs/QUICKSTART.md "$stage/KURZSTART.md"
-Copy-Item README.md, SECURITY.md, LICENSE, CHANGELOG.md, AGENTS.md $stage
+Copy-Item README.md, SECURITY.md, LICENSE, CHANGELOG.md, AGENTS.md, THIRD_PARTY_NOTICES.md $stage
+Copy-Item licenses "$stage/licenses" -Recurse
 # Preserve relative README links and include the two-PC hardware test procedure.
 Copy-Item docs "$stage/docs" -Recurse
 Copy-Item "docs/RELEASE-$Version.md" "$stage/RELEASE-NOTES.md"

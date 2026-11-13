@@ -4,6 +4,8 @@
 
 Shipping target: Windows 11 x64, `x86_64-pc-windows-msvc`. The pinned Rust toolchain is declared in `rust-toolchain.toml`. `.cargo/config.toml` enables the static MSVC runtime. The native Win32 Bluetooth/Winsock API does not need a Store/MSIX package identity, a capability declaration, a service installation or an administrator elevation. The supplied application manifest requests ordinary user privileges and per-monitor DPI awareness.
 
+The ZIP includes `THIRD_PARTY_NOTICES.md`, font notices and the pinned Rust standard-library notices. Regenerate with `python scripts/generate-notices.py` after dependency updates; CI checks that the notices match Cargo.lock.
+
 The EXE is a Windows GUI application with an original embedded ICO and Windows version resources. The icon's editable generator is `scripts/generate-icon.py` (Pillow is needed only to regenerate the image). The normal build does not need Python or Pillow installed on the end user's PC. The UI uses Windows-provided graphics interfaces and requires a functioning desktop graphics driver.
 
 No code-signing credentials are configured. An unsigned release must never be described as trusted-publisher signed; Windows may show SmartScreen warnings. Do not disable protection globally to use it.
