@@ -176,7 +176,7 @@ impl App {
         self.delete_requested = false;
         self.fingerprint_checked = false;
         self.focus_auth = true;
-        ctx.memory_mut(|memory| *memory = egui::Memory::default());
+        clear_ui_memory(ctx);
         ctx.request_repaint();
     }
 
@@ -195,10 +195,11 @@ impl App {
                     if changed_peer {
                         self.fingerprint_checked = false;
                     }
-                    if let Some(peer) = &view.peer {
-                        if !peer.id.is_empty() && (changed_peer || self.selected.is_none()) {
-                            self.selected = Some(peer.id.clone());
-                        }
+                    if let Some(peer) = &view.peer
+                        && !peer.id.is_empty()
+                        && (changed_peer || self.selected.is_none())
+                    {
+                        self.selected = Some(peer.id.clone());
                     }
                     self.view = view;
                 }
@@ -212,7 +213,7 @@ impl App {
     }
 
     fn auth(&mut self, ui: &mut egui::Ui) {
-        ui.add_space((ui.available_height() * 0.10).max(18.0));
+        ui.add_space((ui.ctx().content_rect().height() * 0.07).clamp(12.0, 54.0));
         let width = 420.0_f32.min(ui.available_width() - 32.0);
         ui.vertical_centered(|ui| {
             ui.set_max_width(width);
@@ -249,7 +250,7 @@ impl App {
                         self.error = "Bitte gib einen Namen (höchstens 80 UTF-8-Bytes) und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();
                     } else {
                         let command = if existing { Command::Unlock { password: self.password.clone() } } else { Command::Create { name: self.name.trim().into(), password: self.password.clone() } };
-                        if self.command(command) { self.busy = true; self.password.zeroize(); self.confirmation.zeroize(); ui.ctx().memory_mut(|memory| *memory = egui::Memory::default()); }
+                        if self.command(command) { self.busy = true; self.password.zeroize(); self.confirmation.zeroize(); clear_ui_memory(ui.ctx()); }
                     }
                 }
             });
@@ -341,10 +342,10 @@ impl App {
             }
         }
         ui.add_space(8.0);
-        if ui.small_button("Windows-Bluetooth-Einstellungen").clicked() {
-            if crate::transport::open_bluetooth_settings().is_err() {
-                self.error = "Öffne Windows → Einstellungen → Bluetooth und Geräte.".into();
-            }
+        if ui.small_button("Windows-Bluetooth-Einstellungen").clicked()
+            && crate::transport::open_bluetooth_settings().is_err()
+        {
+            self.error = "Öffne Windows → Einstellungen → Bluetooth und Geräte.".into();
         }
         ui.label(RichText::new("Zum ersten Finden: Bluetooth in Windows einschalten und gegebenenfalls beide PCs dort koppeln. Auf dem anderen PC Hushlink-Empfang aktivieren.").small().color(MUTED));
         ui.separator();
@@ -410,9 +411,10 @@ impl App {
                 if ui.button("Abbrechen").clicked() { self.command(Command::Disconnect); }
             });
         }
-        if let Some(peer) = self.view.peer.clone() {
-            if !peer.ready {
-                ui.group(|ui| {
+        if let Some(peer) = self.view.peer.clone()
+            && !peer.ready
+        {
+            ui.group(|ui| {
                     ui.heading("Vergleicht euren Sicherheitscode");
                     ui.label("Vergleicht alle Gruppen auf beiden PCs über einen unabhängigen Weg, zum Beispiel persönlich. Erst nach Bestätigung auf beiden Geräten wird der Chat freigegeben.");
                     ui.add_space(6.0);
@@ -426,9 +428,8 @@ impl App {
                     }
                     if ui.button("Verbindung trennen").clicked() { self.command(Command::Disconnect); }
                 });
-                self.show_error(ui);
-                return;
-            }
+            self.show_error(ui);
+            return;
         }
         let title = self
             .selected
@@ -595,7 +596,7 @@ impl App {
             if ui.add_enabled(!self.busy, egui::Button::new("Passwort ändern")).clicked() {
                 if self.new_password.chars().count() < 12 || *self.new_password != *self.new_confirmation { self.error = "Das neue Passwort muss mindestens 12 Zeichen haben und mit der Bestätigung übereinstimmen.".into(); }
                 else if self.command(Command::ChangePassword { old: self.password.clone(), new: self.new_password.clone() }) {
-                    self.password.zeroize(); self.new_password.zeroize(); self.new_confirmation.zeroize(); ui.ctx().memory_mut(|memory| *memory = egui::Memory::default());
+                    self.password.zeroize(); self.new_password.zeroize(); self.new_confirmation.zeroize(); clear_ui_memory(ui.ctx());
                 }
             }
             self.show_error(ui);
@@ -607,7 +608,7 @@ impl App {
             self.password.zeroize();
             self.new_password.zeroize();
             self.new_confirmation.zeroize();
-            ctx.memory_mut(|memory| *memory = egui::Memory::default());
+            clear_ui_memory(ctx);
         }
     }
 }
@@ -637,7 +638,11 @@ impl eframe::App for App {
                 .max_width(350.0)
                 .resizable(true)
                 .frame(egui::Frame::new().fill(PANEL).inner_margin(16.0))
-                .show(ctx, |ui| self.sidebar(ui));
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("sidebar_scroll")
+                        .show(ui, |ui| self.sidebar(ui));
+                });
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(20.0))
                 .show(ctx, |ui| {
@@ -647,7 +652,12 @@ impl eframe::App for App {
                 });
             self.settings(ctx);
         } else {
-            egui::CentralPanel::default().show(ctx, |ui| self.auth(ui));
+            egui::CentralPanel::default().show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("auth_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.auth(ui));
+            });
         }
         ctx.request_repaint_after(Duration::from_millis(200));
     }
@@ -665,4 +675,14 @@ fn local_time(timestamp_ms: u64) -> String {
         3600..=86399 => format!("vor {} Std.", seconds / 3600),
         _ => format!("vor {} Tagen", seconds / 86400),
     }
+}
+
+// TextEdit retains an undo buffer. Drop all widget memory while retaining the
+// visual options; resetting those as well would shrink controls after unlock.
+fn clear_ui_memory(ctx: &egui::Context) {
+    ctx.memory_mut(|memory| {
+        let options = memory.options.clone();
+        *memory = egui::Memory::default();
+        memory.options = options;
+    });
 }
