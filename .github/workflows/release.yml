@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A tag never bypasses validation. These jobs rebuild and run all checks for
+  # the tag's exact commit, independently of any branch CI result.
+  checks:
+    uses: ./.github/workflows/checks.yml
+  package:
+    name: Verify and package checked Windows binary
+    needs: checks
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-x64-${{ github.sha }}
+          path: build-artifact
+      - name: Create and verify release assets
+        shell: pwsh
+        run: ./scripts/package.ps1 -Version "$env:GITHUB_REF_NAME" -Commit "$env:GITHUB_SHA"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    name: Publish verified prerelease
+    needs: [checks, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ github.sha }}
+          path: release-assets
+      - name: Validate downloaded asset checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish new prerelease without overwriting existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          test -f "docs/RELEASE-${GITHUB_REF_NAME}.md"
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --target "$GITHUB_SHA" \
+            --title "Hushlink $GITHUB_REF_NAME" --prerelease \
+            --notes-file "docs/RELEASE-${GITHUB_REF_NAME}.md"
