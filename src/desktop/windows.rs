@@ -19,9 +19,17 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{
-        ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM,
+        CloseHandle, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GetLastError,
+        HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WAIT_OBJECT_0, WPARAM,
     },
-    System::{LibraryLoader::GetModuleHandleW, Registry::*, Threading::GetCurrentProcessId},
+    System::{
+        LibraryLoader::GetModuleHandleW,
+        Registry::*,
+        Threading::{
+            CreateEventW, CreateMutexW, GetCurrentProcessId, OpenEventW,
+            SYNCHRONIZATION_SYNCHRONIZE, SetEvent, WaitForSingleObject,
+        },
+    },
     UI::{
         Controls::{LIM_SMALL, LoadIconMetric},
         Shell::*,
@@ -37,7 +45,78 @@ const UPDATES: usize = 103;
 const EXIT: usize = 104;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "Hushlink";
+const INSTANCE_MUTEX: &str = r"Local\Hushlink";
+const SHOW_EVENT: &str = r"Local\Hushlink.Show";
 type Wake = Arc<dyn Fn() + Send + Sync>;
+
+struct OwnedHandle(HANDLE);
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        // SAFETY: constructed only for successful owned kernel handles.
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+/// Keep alive for the entire main window lifetime. Local object names are
+/// scoped to the Windows logon session; default token ACLs restrict access.
+pub struct InstanceGuard {
+    _mutex: OwnedHandle,
+    _show_event: OwnedHandle,
+}
+
+pub fn acquire_instance() -> Result<Option<InstanceGuard>> {
+    acquire_named_instance(
+        INSTANCE_MUTEX,
+        SHOW_EVENT,
+        !std::env::args_os().any(|argument| argument == "--tray"),
+    )
+}
+
+fn acquire_named_instance(
+    mutex_name: &str,
+    event_name: &str,
+    show_existing: bool,
+) -> Result<Option<InstanceGuard>> {
+    let event_name = wide(event_name);
+    // Create/hold the event before the mutex. Concurrent startup losers can
+    // then signal it before the winner's UI/tray exists without losing Show.
+    // SAFETY: non-inheritable, per-user default security, auto-reset event.
+    let event = unsafe { CreateEventW(ptr::null(), 0, 0, event_name.as_ptr()) };
+    ensure!(
+        !event.is_null(),
+        "Die Hushlink-Startbenachrichtigung konnte nicht erstellt werden."
+    );
+    let event = OwnedHandle(event);
+    let mutex_name = wide(mutex_name);
+    // SAFETY: no mutex ownership is taken. Keeping the handle alive is enough
+    // to identify one running app, and crashes release handles automatically.
+    let mutex = unsafe { CreateMutexW(ptr::null(), 0, mutex_name.as_ptr()) };
+    // Read immediately: successful CreateMutex reports whether it preexisted.
+    let status = unsafe { GetLastError() };
+    ensure!(
+        !mutex.is_null(),
+        "Die vorhandene Hushlink-Instanz konnte nicht geprüft werden."
+    );
+    let mutex = OwnedHandle(mutex);
+    if status == ERROR_ALREADY_EXISTS {
+        if show_existing {
+            // SAFETY: this process owns a valid handle to the same session's
+            // event. The tray worker consumes it without requiring a UI frame.
+            ensure!(
+                unsafe { SetEvent(event.0) } != 0,
+                "Das vorhandene Hushlink-Fenster konnte nicht benachrichtigt werden."
+            );
+        }
+        return Ok(None);
+    }
+    Ok(Some(InstanceGuard {
+        _mutex: mutex,
+        _show_event: event,
+    }))
+}
 
 struct Shared {
     events: Sender<DesktopEvent>,
@@ -150,6 +229,7 @@ struct WindowState {
     icon_added: Cell<bool>,
     menu_open: Cell<bool>,
     use_shell: bool,
+    show_event: Option<OwnedHandle>,
 }
 
 struct NativeWindow {
@@ -241,6 +321,15 @@ impl NativeWindow {
                 icon_added: Cell::new(false),
                 menu_open: Cell::new(false),
                 use_shell,
+                // SAFETY: opens only this logon session's existing event with
+                // synchronization rights; it cannot modify someone else's Run
+                // value or unlock a vault. Tests need not own an app instance.
+                show_event: {
+                    let name = wide(SHOW_EVENT);
+                    let event =
+                        unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, 0, name.as_ptr()) };
+                    (!event.is_null()).then(|| OwnedHandle(event))
+                },
             }),
         };
         // SAFETY: the Box is stable until Drop clears userdata before freeing
@@ -469,8 +558,17 @@ unsafe extern "system" fn window_proc(
                         }
                         PostQuitMessage(0);
                     }
-                } else if state.use_shell && !state.icon_added.get() {
-                    add_icon(window, state);
+                } else {
+                    if let Some(event) = &state.show_event {
+                        // SAFETY: valid owned auto-reset event; zero timeout
+                        // never blocks this worker's native message queue.
+                        if unsafe { WaitForSingleObject(event.0, 0) } == WAIT_OBJECT_0 {
+                            state.shared.emit(DesktopEvent::Show);
+                        }
+                    }
+                    if state.use_shell && !state.icon_added.get() {
+                        add_icon(window, state);
+                    }
                 }
                 return 0;
             }
@@ -655,6 +753,42 @@ pub fn set_startup(enabled: bool) -> Result<()> {
 mod tests {
     use super::*;
     use std::{sync::atomic::AtomicUsize, time::Instant};
+
+    #[test]
+    fn native_instance_guard_retains_show_until_ui_starts_and_releases_after_exit() -> Result<()> {
+        static TEST_ID: AtomicU64 = AtomicU64::new(0);
+        let suffix = format!(
+            "{}.{}",
+            std::process::id(),
+            TEST_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        // Test-only names never signal or modify a person's running Hushlink.
+        let mutex = format!(r"Local\Hushlink.Test.{suffix}");
+        let event = format!(r"Local\Hushlink.Test.Show.{suffix}");
+        let first = acquire_named_instance(&mutex, &event, false)?
+            .context("first instance must acquire its guard")?;
+        // No tray or eframe exists yet. A second ordinary invocation must leave
+        // a Show request available for the first worker's future timer tick.
+        assert!(acquire_named_instance(&mutex, &event, true)?.is_none());
+        // SAFETY: private test-owned event, nonblocking auto-reset read.
+        assert_eq!(
+            unsafe { WaitForSingleObject(first._show_event.0, 0) },
+            WAIT_OBJECT_0
+        );
+        assert_ne!(
+            unsafe { WaitForSingleObject(first._show_event.0, 0) },
+            WAIT_OBJECT_0
+        );
+        // A duplicate autostart must preserve the user's hidden window state.
+        assert!(acquire_named_instance(&mutex, &event, false)?.is_none());
+        assert_ne!(
+            unsafe { WaitForSingleObject(first._show_event.0, 0) },
+            WAIT_OBJECT_0
+        );
+        drop(first);
+        assert!(acquire_named_instance(&mutex, &event, false)?.is_some());
+        Ok(())
+    }
 
     #[test]
     fn native_queue_dispatches_without_eframe_and_cleans_up_on_owner_drop() -> Result<()> {

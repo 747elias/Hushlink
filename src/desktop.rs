@@ -15,7 +15,17 @@ pub enum DesktopEvent {
 #[path = "desktop/windows.rs"]
 mod windows;
 #[cfg(windows)]
-pub use windows::{DesktopIntegration, set_startup, startup_enabled};
+pub use windows::{
+    DesktopIntegration, InstanceGuard, acquire_instance, set_startup, startup_enabled,
+};
+
+#[cfg(not(windows))]
+pub struct InstanceGuard;
+
+#[cfg(not(windows))]
+pub fn acquire_instance() -> Result<Option<InstanceGuard>> {
+    Ok(Some(InstanceGuard))
+}
 
 #[cfg(not(windows))]
 pub struct DesktopIntegration;
