@@ -1,10 +1,11 @@
 //! Worker actors connecting the encrypted vault, authenticated session and real RFCOMM.
 //! All KDF, file, Bluetooth and protocol work runs outside the eframe thread.
 
-use crate::{protocol, transport, vault};
+use crate::{desktop, protocol, storage_location, transport, vault};
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
+use sha2::{Digest, Sha256};
 use std::{
-    io::{self, Read},
+    io::{self, Read, Write},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -44,6 +45,31 @@ pub enum Command {
     Send {
         text: Zeroizing<String>,
     },
+    SendFile {
+        path: PathBuf,
+    },
+    RespondFile {
+        id: String,
+        accept: bool,
+    },
+    CancelFile {
+        id: String,
+    },
+    ExportFile {
+        attachment_id: String,
+        destination: PathBuf,
+    },
+    ChooseVault {
+        path: PathBuf,
+    },
+    RelocateVault {
+        path: PathBuf,
+    },
+    SetDesktopSettings {
+        start_with_windows: bool,
+        minimize_to_tray: bool,
+        automatic_updates: bool,
+    },
     Disconnect,
     DeleteHistory {
         contact_id: String,
@@ -65,6 +91,8 @@ impl Drop for Command {
             Self::Create { name, .. } => name.zeroize(),
             Self::Connect { address } => address.zeroize(),
             Self::DeleteHistory { contact_id } => contact_id.zeroize(),
+            Self::RespondFile { id, .. } | Self::CancelFile { id } => id.zeroize(),
+            Self::ExportFile { attachment_id, .. } => attachment_id.zeroize(),
             _ => {}
         }
     }
@@ -86,6 +114,9 @@ pub struct MessageView {
     pub id: String,
     pub contact_id: String,
     pub text: String,
+    pub attachment_id: Option<String>,
+    pub attachment_name: Option<String>,
+    pub attachment_size: u64,
     pub timestamp_ms: u64,
     pub outgoing: bool,
     #[zeroize(skip)]
@@ -101,8 +132,27 @@ pub struct PeerView {
     pub local_confirmed: bool,
     pub ready: bool,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileTransferState {
+    AwaitingConsent,
+    Transferring,
+    Stored,
+    Cancelled,
+    Failed,
+}
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct FileTransferView {
+    pub id: String,
+    pub name: String,
+    pub size: u64,
+    pub transferred: u64,
+    pub outgoing: bool,
+    #[zeroize(skip)]
+    pub state: FileTransferState,
+}
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub vault_path: String,
     pub profile_exists: bool,
     pub unlocked: bool,
     pub profile_name: String,
@@ -117,6 +167,10 @@ pub struct View {
     pub peer: Option<PeerView>,
     pub key_change: Option<DeviceView>,
     pub inactivity_minutes: u32,
+    pub start_with_windows: bool,
+    pub minimize_to_tray: bool,
+    pub automatic_updates: bool,
+    pub transfers: Vec<FileTransferView>,
 }
 
 // State is delivered through a coalescing mailbox, so it does not inflate the
@@ -372,6 +426,7 @@ impl Drop for Background {
             }
             BackgroundEvent::Availability(Ok(availability)) => availability.radio_name.zeroize(),
             BackgroundEvent::Peer(_, PeerEvent::Hello(name)) => name.zeroize(),
+            BackgroundEvent::Peer(_, PeerEvent::FileOffer { name, .. }) => name.zeroize(),
             BackgroundEvent::Peer(_, PeerEvent::Identity { fingerprint, .. }) => {
                 fingerprint.zeroize()
             }
@@ -394,11 +449,40 @@ enum BackgroundEvent {
     ConnectError(String, Arc<AtomicBool>),
     ListenerError(String, Arc<AtomicBool>),
     Peer(u64, PeerEvent),
+    FileLoaded(u64, Result<PreparedFile, String>),
+    Exported(Result<(), String>),
+}
+#[derive(Clone)]
+struct PreparedFile {
+    name: Zeroizing<String>,
+    data: Arc<Zeroizing<Vec<u8>>>,
+    sha256: [u8; 32],
+}
+struct IncomingFile {
+    id: protocol::MessageId,
+    name: Zeroizing<String>,
+    size: u64,
+    sha256: [u8; 32],
+    accepted: bool,
+    data: Zeroizing<Vec<u8>>,
+    activity: Instant,
+}
+struct OutgoingFile {
+    id: protocol::MessageId,
+    file: PreparedFile,
+    offset: usize,
+    accepted: bool,
+    completed: bool,
+    activity: Instant,
 }
 enum PeerCommand {
     Confirm,
     Send(Zeroizing<String>),
     Ack(protocol::MessageId),
+    OfferFile(PreparedFile),
+    AcceptFile(protocol::MessageId),
+    CancelFile(protocol::MessageId),
+    FileStored(protocol::MessageId),
     Close,
 }
 enum PeerEvent {
@@ -421,6 +505,31 @@ enum PeerEvent {
         text: Zeroizing<String>,
     },
     Ack(protocol::MessageId),
+    FileOffered {
+        id: protocol::MessageId,
+        file: PreparedFile,
+        persisted: Sender<bool>,
+    },
+    FileOffer {
+        id: protocol::MessageId,
+        name: String,
+        size: u64,
+        sha256: [u8; 32],
+    },
+    FileAccepted(protocol::MessageId),
+    FileChunk {
+        id: protocol::MessageId,
+        offset: u64,
+        data: Zeroizing<Vec<u8>>,
+    },
+    FileProgress {
+        id: protocol::MessageId,
+        transferred: u64,
+    },
+    FileComplete(protocol::MessageId),
+    FileSent(protocol::MessageId),
+    FileStored(protocol::MessageId),
+    FileCancelled(protocol::MessageId),
     Error(String),
     KeyChanged,
     Closed,
@@ -447,6 +556,11 @@ impl Drop for PeerWorker {
 
 struct Actor {
     path: PathBuf,
+    default_path: PathBuf,
+    path_error: Option<String>,
+    incoming_file: Option<IncomingFile>,
+    file_loading: Option<u64>,
+    desktop_preferences: storage_location::DesktopPreferences,
     events: Sender<Outbound>,
     mailbox: Arc<Mutex<Mailbox>>,
     background: Receiver<Background>,
@@ -463,6 +577,7 @@ struct Actor {
     listener_flag: Option<Arc<AtomicBool>>,
     discovery_flag: Option<Arc<AtomicBool>>,
     next_peer_id: u64,
+    last_snapshot: Instant,
 }
 impl Actor {
     fn new(
@@ -472,12 +587,35 @@ impl Actor {
         mailbox: Arc<Mutex<Mailbox>>,
     ) -> Self {
         let (background_tx, background) = bounded(COMMAND_CAPACITY);
+        let default_path = path;
+        let (path, path_error) = match storage_location::load(&default_path) {
+            Ok(path) => (path, None),
+            Err(error) => (default_path.clone(), Some(error.to_string())),
+        };
         let mut view = View::default();
-        view.profile_exists = path.exists();
-        view.status = "Tresor gesperrt".into();
+        let desktop_preferences = storage_location::load_preferences(&default_path).unwrap_or(
+            storage_location::DesktopPreferences {
+                start_with_windows: false,
+                minimize_to_tray: false,
+                automatic_updates: false,
+            },
+        );
+        view.vault_path = path.display().to_string();
+        view.profile_exists = path.exists() || path_error.is_some();
+        view.status = path_error
+            .clone()
+            .unwrap_or_else(|| "Tresor gesperrt".into());
         view.inactivity_minutes = 5;
+        view.start_with_windows = desktop_preferences.start_with_windows;
+        view.minimize_to_tray = desktop_preferences.minimize_to_tray;
+        view.automatic_updates = desktop_preferences.automatic_updates;
         Self {
             path,
+            default_path,
+            path_error,
+            incoming_file: None,
+            file_loading: None,
+            desktop_preferences,
             events,
             mailbox,
             background,
@@ -494,6 +632,7 @@ impl Actor {
             listener_flag: None,
             discovery_flag: None,
             next_peer_id: 0,
+            last_snapshot: Instant::now(),
         }
     }
     fn current(&self) -> bool {
@@ -522,7 +661,8 @@ impl Actor {
             }
         }
     }
-    fn snapshot(&self) {
+    fn snapshot(&mut self) {
+        self.last_snapshot = Instant::now();
         self.emit(Event::State(self.view.clone()));
     }
     fn error(&self, error: impl ToString) {
@@ -537,6 +677,9 @@ impl Actor {
         self.view.unlocked = true;
         self.view.profile_name.clone_from(&profile.display_name);
         self.view.inactivity_minutes = profile.settings.inactivity_minutes;
+        self.view.start_with_windows = self.desktop_preferences.start_with_windows;
+        self.view.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
+        self.view.automatic_updates = self.desktop_preferences.automatic_updates;
         self.view.contacts = profile
             .contacts
             .iter()
@@ -553,6 +696,17 @@ impl Actor {
                 id: m.id.clone(),
                 contact_id: m.contact_id.clone(),
                 text: m.text.clone(),
+                attachment_id: m.attachment_id.clone(),
+                attachment_name: m
+                    .attachment_id
+                    .as_ref()
+                    .and_then(|id| profile.attachments.iter().find(|a| a.id == *id))
+                    .map(|a| a.name.clone()),
+                attachment_size: m
+                    .attachment_id
+                    .as_ref()
+                    .and_then(|id| profile.attachments.iter().find(|a| a.id == *id))
+                    .map_or(0, |a| a.data.len() as u64),
                 timestamp_ms: m.timestamp_ms,
                 outgoing: m.outgoing,
                 status: m.status,
@@ -560,8 +714,15 @@ impl Actor {
             .collect();
     }
     fn save(&mut self) -> bool {
+        if let Some(vault) = &mut self.vault {
+            let settings = &mut vault.profile_mut().settings;
+            settings.start_with_windows = self.desktop_preferences.start_with_windows;
+            settings.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
+            settings.automatic_updates = self.desktop_preferences.automatic_updates;
+        }
         let result = self.vault.as_mut().map(|v| v.save());
         match result {
+            None => false,
             Some(Err(error)) => {
                 if let (Some(vault), Some(saved)) = (&mut self.vault, &self.saved_profile) {
                     *vault.profile_mut() = saved.clone();
@@ -580,6 +741,8 @@ impl Actor {
     fn clear(&mut self) {
         self.hub.sensitive.store(false, Ordering::Release);
         self.peer = None;
+        self.incoming_file = None;
+        self.file_loading = None;
         if let Some((stream, mut device, _lease)) = self.pending.take() {
             stream.cancel_handle().cancel();
             device.name.zeroize();
@@ -596,9 +759,16 @@ impl Actor {
             flag.store(true, Ordering::Release);
         }
         self.view = View::default();
-        self.view.profile_exists = self.path.exists();
-        self.view.status = "Tresor gesperrt".into();
+        self.view.vault_path = self.path.display().to_string();
+        self.view.profile_exists = self.path.exists() || self.path_error.is_some();
+        self.view.status = self
+            .path_error
+            .clone()
+            .unwrap_or_else(|| "Tresor gesperrt".into());
         self.view.inactivity_minutes = 5;
+        self.view.start_with_windows = self.desktop_preferences.start_with_windows;
+        self.view.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
+        self.view.automatic_updates = self.desktop_preferences.automatic_updates;
         self.snapshot();
         self.emit(Event::Busy(false));
     }
@@ -622,6 +792,13 @@ impl Actor {
                 self.clear();
             }
             self.enforce_idle_lock();
+            if self.incoming_file.as_ref().is_some_and(|file| {
+                file.activity.elapsed() > Duration::from_secs(if file.accepted { 90 } else { 180 })
+            }) {
+                self.disconnect(
+                    "Dateiübertragung hat das Zeitlimit erreicht. Bitte neu verbinden.",
+                );
+            }
             if self
                 .pending_since
                 .is_some_and(|since| since.elapsed() > Duration::from_secs(30))
@@ -651,7 +828,13 @@ impl Actor {
                     if let Ok(mut bg) = item
                         && bg.generation == self.generation && self.current() {
                         let event = std::mem::replace(&mut bg.event, BackgroundEvent::Empty);
-                        self.background(event); self.snapshot();
+                        let progress_only = matches!(&event, BackgroundEvent::Peer(_, PeerEvent::FileChunk { .. } | PeerEvent::FileProgress { .. }));
+                        self.background(event);
+                        // A progress packet must not clone the entire text history
+                        // 2,560 times for one file. State changes still repaint now.
+                        if !progress_only || self.peer.is_none() || self.last_snapshot.elapsed() >= Duration::from_millis(100) {
+                            self.snapshot();
+                        }
                     }
                 }
                 default(Duration::from_millis(100)) => {}
@@ -660,7 +843,66 @@ impl Actor {
     }
     fn command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::SetDesktopSettings {
+                start_with_windows,
+                minimize_to_tray,
+                automatic_updates,
+            } => {
+                let preferences = storage_location::DesktopPreferences {
+                    start_with_windows: *start_with_windows,
+                    minimize_to_tray: *minimize_to_tray,
+                    automatic_updates: *automatic_updates,
+                };
+                let previous_startup = desktop::startup_enabled()?;
+                let startup_changed = previous_startup != *start_with_windows;
+                if startup_changed {
+                    desktop::set_startup(*start_with_windows)?;
+                }
+                if let Err(error) =
+                    storage_location::save_preferences(&self.default_path, preferences)
+                {
+                    if startup_changed
+                        && let Err(rollback_error) = desktop::set_startup(previous_startup)
+                    {
+                        anyhow::bail!(
+                            "Einstellungen nicht gespeichert: {error}. Auch der bisherige Windows-Autostart konnte nicht wiederhergestellt werden: {rollback_error}"
+                        );
+                    }
+                    return Err(error.into());
+                }
+                self.desktop_preferences = preferences;
+                let mut mirrored = true;
+                if let Some(vault) = &mut self.vault {
+                    let settings = &mut vault.profile_mut().settings;
+                    settings.start_with_windows = *start_with_windows;
+                    settings.minimize_to_tray = *minimize_to_tray;
+                    settings.automatic_updates = *automatic_updates;
+                    mirrored = self.save();
+                }
+                self.view.start_with_windows = *start_with_windows;
+                self.view.minimize_to_tray = *minimize_to_tray;
+                self.view.automatic_updates = *automatic_updates;
+                anyhow::ensure!(
+                    mirrored,
+                    "Desktop-Einstellungen gespeichert. Der verschlüsselte Profilspiegel konnte nicht aktualisiert werden; die gewählten Desktop-Einstellungen bleiben gültig."
+                );
+            }
+            Command::ChooseVault { path } => {
+                anyhow::ensure!(
+                    self.vault.is_none(),
+                    "Bitte vor dem Wechsel den Tresor sperren."
+                );
+                storage_location::save(&self.default_path, path)?;
+                self.desktop_preferences = storage_location::load_preferences(&self.default_path)?;
+                self.path = path.clone();
+                self.path_error = None;
+                self.clear();
+            }
             Command::Create { name, password } => {
+                anyhow::ensure!(
+                    self.path_error.is_none(),
+                    "Der gespeicherte Tresorpfad ist beschädigt. Bitte einen Tresor auswählen."
+                );
                 anyhow::ensure!(self.vault.is_none(), "Der Tresor ist bereits entsperrt.");
                 anyhow::ensure!(
                     !self.path.exists(),
@@ -675,11 +917,14 @@ impl Actor {
                 self.hub.sensitive.store(true, Ordering::Release);
                 self.emit(Event::Busy(true));
                 let identity = protocol::IdentityKey::generate()?;
-                let profile = vault::Profile::new(
+                let mut profile = vault::Profile::new(
                     name.trim().to_owned(),
                     *identity.private(),
                     identity.public(),
                 );
+                profile.settings.start_with_windows = self.desktop_preferences.start_with_windows;
+                profile.settings.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
+                profile.settings.automatic_updates = self.desktop_preferences.automatic_updates;
                 let result = vault::Vault::create(&self.path, password.as_str(), profile);
                 self.emit(Event::Busy(false));
                 if !self.current() {
@@ -689,6 +934,10 @@ impl Actor {
                 self.after_unlock();
             }
             Command::Unlock { password } => {
+                anyhow::ensure!(
+                    self.path_error.is_none(),
+                    "Der gespeicherte Tresorpfad ist beschädigt. Bitte einen Tresor auswählen."
+                );
                 anyhow::ensure!(self.vault.is_none(), "Der Tresor ist bereits entsperrt.");
                 self.hub.sensitive.store(true, Ordering::Release);
                 self.emit(Event::Busy(true));
@@ -718,13 +967,15 @@ impl Actor {
         // Pending/sent messages from a former connection cannot acquire an ACK in a new
         // Noise session. Keep their history and mark their delivery as uncertain/failed.
         if let Some(vault) = &mut self.vault {
+            let settings = &mut vault.profile_mut().settings;
+            settings.start_with_windows = self.desktop_preferences.start_with_windows;
+            settings.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
+            settings.automatic_updates = self.desktop_preferences.automatic_updates;
             for message in &mut vault.profile_mut().messages {
-                if message.outgoing
-                    && matches!(
-                        message.status,
-                        vault::MessageStatus::Pending | vault::MessageStatus::Sent
-                    )
-                {
+                if matches!(
+                    message.status,
+                    vault::MessageStatus::Pending | vault::MessageStatus::Sent
+                ) {
                     message.status = vault::MessageStatus::Failed;
                 }
             }
@@ -831,6 +1082,58 @@ impl Actor {
                         )
                     })?;
             }
+            Command::SendFile { path } => self.load_file(path.clone())?,
+            Command::RespondFile { id, accept } => self.respond_file(id, *accept)?,
+            Command::CancelFile { id } => {
+                let message_id = parse_message_id(id)?;
+                anyhow::ensure!(
+                    self.view.transfers.iter().any(|t| t.id == *id
+                        && matches!(
+                            t.state,
+                            FileTransferState::AwaitingConsent | FileTransferState::Transferring
+                        )),
+                    "Keine aktive Dateiübertragung."
+                );
+                self.peer_command(PeerCommand::CancelFile(message_id))?;
+                self.cancel_file(message_id);
+            }
+            Command::ExportFile {
+                attachment_id,
+                destination,
+            } => self.export_file(attachment_id, destination.clone())?,
+            Command::RelocateVault { path } => {
+                anyhow::ensure!(
+                    self.peer.is_none() && self.file_loading.is_none(),
+                    "Bitte vor dem Verschieben die Verbindung trennen."
+                );
+                self.emit(Event::Busy(true));
+                let result = storage_location::relocate(
+                    self.vault
+                        .as_mut()
+                        .ok_or_else(|| anyhow::anyhow!("Tresor gesperrt."))?,
+                    &self.default_path,
+                    path,
+                );
+                self.emit(Event::Busy(false));
+                if let Err(error) = result {
+                    // A durable locator update can have committed before an OS
+                    // flush/cleanup error. Never keep writing a possibly old copy.
+                    self.generation = self.hub.invalidate();
+                    match storage_location::load(&self.default_path) {
+                        Ok(selected) => {
+                            self.path = selected;
+                            self.path_error = None;
+                        }
+                        Err(load_error) => self.path_error = Some(load_error.to_string()),
+                    }
+                    self.clear();
+                    self.view.status = "Verschieben nicht vollständig abgeschlossen. Tresor gesperrt; Speicherort vor dem Entsperren prüfen.".into();
+                    return Err(error.into());
+                }
+                self.path = path.clone();
+                self.view.vault_path = self.path.display().to_string();
+                self.view.status = "Verschlüsselter Tresor wurde verschoben".into();
+            }
             Command::Disconnect => self.disconnect("Verbindung getrennt"),
             Command::DeleteHistory { contact_id } => {
                 anyhow::ensure!(
@@ -846,6 +1149,10 @@ impl Actor {
                         .profile_mut()
                         .messages
                         .retain(|m| m.contact_id != *contact_id);
+                    vault
+                        .profile_mut()
+                        .attachments
+                        .retain(|a| a.contact_id != *contact_id);
                 }
                 anyhow::ensure!(self.save(), "Der Verlauf konnte nicht gespeichert werden.");
                 self.view.status = "Lokaler Verlauf gelöscht".into();
@@ -877,6 +1184,165 @@ impl Actor {
             _ => {}
         }
         Ok(())
+    }
+    fn peer_command(&self, command: PeerCommand) -> anyhow::Result<()> {
+        self.peer
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Keine aktive Verbindung."))?
+            .commands
+            .try_send(command)
+            .map_err(|_| anyhow::anyhow!("Verbindung ist beschäftigt oder geschlossen."))
+    }
+    fn load_file(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.view.peer.as_ref().is_some_and(|p| p.ready),
+            "Beide Personen müssen den Kontakt zuerst bestätigen."
+        );
+        anyhow::ensure!(
+            self.file_loading.is_none()
+                && !self.view.transfers.iter().any(|t| t.outgoing
+                    && matches!(
+                        t.state,
+                        FileTransferState::AwaitingConsent | FileTransferState::Transferring
+                    )),
+            "Es wird bereits eine Datei gesendet."
+        );
+        let peer_id = self
+            .peer
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Keine aktive Verbindung."))?
+            .id;
+        self.file_loading = Some(peer_id);
+        let flag = self.hub.flag(self.generation);
+        let tx = self.background_tx.clone();
+        let generation = self.generation;
+        thread::spawn(move || {
+            let result = prepare_file(&path, &flag).map_err(|e| e.to_string());
+            let _ = tx.send(Background {
+                generation,
+                event: BackgroundEvent::FileLoaded(peer_id, result),
+            });
+        });
+        Ok(())
+    }
+    fn respond_file(&mut self, id: &str, accept: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.view.peer.as_ref().is_some_and(|p| p.ready),
+            "Kontakt noch nicht bestätigt."
+        );
+        let message_id = parse_message_id(id)?;
+        let incoming = self
+            .incoming_file
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Kein Dateiangebot vorhanden."))?;
+        anyhow::ensure!(
+            incoming.id == message_id && !incoming.accepted,
+            "Dieses Dateiangebot ist nicht mehr offen."
+        );
+        if accept {
+            anyhow::ensure!(
+                self.file_capacity(incoming.size),
+                "Der Tresor hat seine Dateigrenze erreicht. Bitte zuerst alte Verläufe löschen."
+            );
+            let text = incoming.name.to_string();
+            let contact_id = self
+                .view
+                .peer
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Keine aktive Verbindung."))?
+                .id
+                .clone();
+            if let Some(vault) = &mut self.vault {
+                vault.profile_mut().messages.push(vault::StoredMessage {
+                    id: id.to_owned(),
+                    contact_id,
+                    text,
+                    timestamp_ms: timestamp_ms(),
+                    outgoing: false,
+                    status: vault::MessageStatus::Pending,
+                    attachment_id: None,
+                });
+            }
+            if !self.save() {
+                self.disconnect("Dateiannahme konnte nicht sicher gespeichert werden");
+                anyhow::bail!("Dateiannahme konnte nicht gespeichert werden.");
+            }
+            self.peer_command(PeerCommand::AcceptFile(message_id))?;
+            if let Some(incoming) = &mut self.incoming_file {
+                incoming.accepted = true;
+                incoming.activity = Instant::now();
+            }
+            self.transfer_state(message_id, FileTransferState::Transferring);
+        } else {
+            self.peer_command(PeerCommand::CancelFile(message_id))?;
+            self.cancel_file(message_id);
+        }
+        Ok(())
+    }
+    fn export_file(&mut self, attachment_id: &str, destination: PathBuf) -> anyhow::Result<()> {
+        let attachment = self
+            .vault
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Tresor gesperrt."))?
+            .profile()
+            .attachments
+            .iter()
+            .find(|a| a.id == attachment_id)
+            .ok_or_else(|| anyhow::anyhow!("Die Datei ist nicht im Tresor vorhanden."))?;
+        let data = Zeroizing::new(attachment.data.clone());
+        let digest = attachment.sha256;
+        let flag = self.hub.flag(self.generation);
+        let tx = self.background_tx.clone();
+        let generation = self.generation;
+        thread::spawn(move || {
+            let result =
+                export_attachment(&destination, &data, digest, &flag).map_err(|e| e.to_string());
+            let _ = tx.send(Background {
+                generation,
+                event: BackgroundEvent::Exported(result),
+            });
+        });
+        self.view.status = "Datei wird an den gewählten Ort entschlüsselt …".into();
+        Ok(())
+    }
+    fn transfer_state(&mut self, id: protocol::MessageId, state: FileTransferState) {
+        let id = hex::encode(id);
+        if let Some(transfer) = self.view.transfers.iter_mut().find(|t| t.id == id) {
+            transfer.state = state;
+        }
+    }
+    fn cancel_file(&mut self, id: protocol::MessageId) {
+        if self
+            .view
+            .transfers
+            .iter()
+            .any(|file| file.id == hex::encode(id) && file.state == FileTransferState::Stored)
+        {
+            return;
+        }
+        if self.incoming_file.as_ref().is_some_and(|f| f.id == id) {
+            self.incoming_file = None;
+        }
+        self.transfer_state(id, FileTransferState::Cancelled);
+        self.fail_file_message(id);
+    }
+    fn fail_file_message(&mut self, id: protocol::MessageId) {
+        let id = hex::encode(id);
+        let contact_id = self.view.peer.as_ref().map(|peer| peer.id.clone());
+        if let Some(vault) = &mut self.vault {
+            for message in &mut vault.profile_mut().messages {
+                if message.id == id
+                    && contact_id.as_ref() == Some(&message.contact_id)
+                    && matches!(
+                        message.status,
+                        vault::MessageStatus::Pending | vault::MessageStatus::Sent
+                    )
+                {
+                    message.status = vault::MessageStatus::Failed;
+                }
+            }
+        }
+        self.save();
     }
     fn start_listening(&mut self) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -1022,6 +1488,16 @@ impl Actor {
         Ok(())
     }
     fn disconnect(&mut self, status: &str) {
+        self.incoming_file = None;
+        self.file_loading = None;
+        for transfer in &mut self.view.transfers {
+            if matches!(
+                transfer.state,
+                FileTransferState::AwaitingConsent | FileTransferState::Transferring
+            ) {
+                transfer.state = FileTransferState::Failed;
+            }
+        }
         if let Some(peer) = self.peer.take() {
             let _ = peer.commands.try_send(PeerCommand::Close);
         }
@@ -1040,7 +1516,6 @@ impl Actor {
         {
             for message in &mut vault.profile_mut().messages {
                 if message.contact_id == peer.id
-                    && message.outgoing
                     && matches!(
                         message.status,
                         vault::MessageStatus::Pending | vault::MessageStatus::Sent
@@ -1059,6 +1534,37 @@ impl Actor {
     fn background(&mut self, event: BackgroundEvent) {
         match event {
             BackgroundEvent::Empty => {}
+            BackgroundEvent::FileLoaded(peer_id, result) => {
+                if self.file_loading != Some(peer_id) {
+                    return;
+                }
+                if self.peer.as_ref().is_none_or(|p| p.id != peer_id)
+                    || !self.view.peer.as_ref().is_some_and(|p| p.ready)
+                {
+                    self.file_loading = None;
+                    return;
+                }
+                match result {
+                    Ok(file) => {
+                        if let Err(error) = self.peer_command(PeerCommand::OfferFile(file)) {
+                            self.file_loading = None;
+                            self.error(error);
+                        }
+                    }
+                    Err(error) => {
+                        self.file_loading = None;
+                        self.error(error);
+                    }
+                }
+            }
+            BackgroundEvent::Exported(result) => match result {
+                Ok(()) => {
+                    self.view.status =
+                        "Datei wurde entschlüsselt gespeichert. Sie liegt dort unverschlüsselt vor."
+                            .into()
+                }
+                Err(error) => self.error(error),
+            },
             BackgroundEvent::Availability(result) => {
                 self.view.availability = match result {
                     Ok(availability) => format!("Bluetooth: {}", availability.radio_name),
@@ -1250,6 +1756,7 @@ impl Actor {
                         id: hex::encode(id),
                         contact_id: peer.id.clone(),
                         text: text.to_string(),
+                        attachment_id: None,
                         timestamp_ms: timestamp_ms(),
                         outgoing: true,
                         status: vault::MessageStatus::Pending,
@@ -1299,6 +1806,7 @@ impl Actor {
                         id: hex::encode(id),
                         contact_id: peer.id.clone(),
                         text: text.to_string(),
+                        attachment_id: None,
                         timestamp_ms: timestamp_ms(),
                         outgoing: false,
                         status: vault::MessageStatus::Received,
@@ -1314,6 +1822,92 @@ impl Actor {
                     self.disconnect("Nachricht konnte nicht sicher gespeichert werden");
                 }
             }
+            PeerEvent::FileOffered {
+                id,
+                file,
+                persisted,
+            } => {
+                self.file_loading = None;
+                let saved = self.store_outgoing_file(id, &file);
+                let _ = persisted.try_send(saved && self.current());
+                if !saved {
+                    self.disconnect("Datei konnte nicht sicher im Tresor gespeichert werden");
+                }
+            }
+            PeerEvent::FileOffer {
+                id,
+                name,
+                size,
+                sha256,
+            } => {
+                if !self.view.peer.as_ref().is_some_and(|peer| peer.ready)
+                    || self.incoming_file.is_some()
+                    || size > protocol::MAX_FILE_SIZE
+                    || !vault::valid_attachment_name(&name)
+                    || self.has_stored_message(id)
+                {
+                    self.disconnect("Unzulässiges oder doppeltes Dateiangebot");
+                    return;
+                }
+                self.push_transfer(id, &name, size, false);
+                self.incoming_file = Some(IncomingFile {
+                    id,
+                    name: Zeroizing::new(name),
+                    size,
+                    sha256,
+                    accepted: false,
+                    data: Zeroizing::new(Vec::new()),
+                    activity: Instant::now(),
+                });
+                self.view.status = "Dateiangebot – Annahme ist erforderlich".into();
+            }
+            PeerEvent::FileAccepted(id) => {
+                if !self.file_cancelled(id) {
+                    self.transfer_state(id, FileTransferState::Transferring);
+                }
+            }
+            PeerEvent::FileChunk { id, offset, data } => {
+                if self.file_cancelled(id) {
+                    return;
+                }
+                let Some(file) = self.incoming_file.as_mut() else {
+                    self.disconnect("Dateidaten ohne angenommenes Angebot");
+                    return;
+                };
+                if file.id != id
+                    || !file.accepted
+                    || offset != file.data.len() as u64
+                    || data.is_empty()
+                    || data.len() > protocol::MAX_FILE_CHUNK
+                    || offset.saturating_add(data.len() as u64) > file.size
+                {
+                    self.disconnect("Unzulässige Dateidaten verworfen");
+                    return;
+                }
+                file.data.extend_from_slice(&data);
+                file.activity = Instant::now();
+                let transferred = file.data.len() as u64;
+                self.transfer_progress(id, transferred);
+            }
+            PeerEvent::FileProgress { id, transferred } => self.transfer_progress(id, transferred),
+            PeerEvent::FileComplete(id) => {
+                if !self.file_cancelled(id) {
+                    self.complete_incoming_file(id);
+                }
+            }
+            PeerEvent::FileSent(id) => {
+                if !self.file_cancelled(id) {
+                    self.update_delivery(id, vault::MessageStatus::Sent);
+                }
+            }
+            PeerEvent::FileStored(id) => {
+                if self.file_cancelled(id) {
+                    return;
+                }
+                self.transfer_state(id, FileTransferState::Stored);
+                self.update_delivery(id, vault::MessageStatus::Received);
+            }
+            PeerEvent::FileCancelled(id) => self.cancel_file(id),
             PeerEvent::KeyChanged => {
                 let device = self.peer.as_ref().map(|p| DeviceView {
                     name: p.device.name.clone(),
@@ -1330,6 +1924,173 @@ impl Actor {
                 self.error(error);
             }
             PeerEvent::Closed => self.disconnect("Die Gegenstelle hat die Verbindung beendet"),
+        }
+    }
+    fn has_stored_message(&self, id: protocol::MessageId) -> bool {
+        let id = hex::encode(id);
+        self.vault.as_ref().is_none_or(|vault| {
+            vault
+                .profile()
+                .attachments
+                .iter()
+                .any(|attachment| attachment.id == id)
+                || vault.profile().messages.iter().any(|message| {
+                    message.id == id
+                        && self
+                            .view
+                            .peer
+                            .as_ref()
+                            .is_some_and(|peer| peer.id == message.contact_id)
+                })
+        })
+    }
+    fn file_cancelled(&self, id: protocol::MessageId) -> bool {
+        let id = hex::encode(id);
+        self.view.transfers.iter().any(|file| {
+            file.id == id
+                && matches!(
+                    file.state,
+                    FileTransferState::Cancelled | FileTransferState::Failed
+                )
+        })
+    }
+    fn file_capacity(&self, size: u64) -> bool {
+        self.vault.as_ref().is_some_and(|vault| {
+            let profile = vault.profile();
+            let reservation = self.incoming_file.as_ref().filter(|file| file.accepted);
+            let reserved = reservation.map_or(0, |file| file.size);
+            profile.messages.len() < vault::MAX_MESSAGES
+                && profile.attachments.len() + usize::from(reservation.is_some())
+                    < vault::MAX_ATTACHMENTS
+                && size <= protocol::MAX_FILE_SIZE
+                && profile
+                    .attachments
+                    .iter()
+                    .map(|file| file.data.len() as u64)
+                    .sum::<u64>()
+                    .saturating_add(reserved)
+                    .saturating_add(size)
+                    <= vault::MAX_TOTAL_ATTACHMENT_BYTES as u64
+        })
+    }
+    fn push_transfer(&mut self, id: protocol::MessageId, name: &str, size: u64, outgoing: bool) {
+        // Completed transient progress belongs to history; keep UI snapshots bounded.
+        self.view.transfers.retain(|transfer| {
+            matches!(
+                transfer.state,
+                FileTransferState::AwaitingConsent | FileTransferState::Transferring
+            )
+        });
+        self.view.transfers.push(FileTransferView {
+            id: hex::encode(id),
+            name: name.to_owned(),
+            size,
+            transferred: 0,
+            outgoing,
+            state: FileTransferState::AwaitingConsent,
+        });
+    }
+    fn transfer_progress(&mut self, id: protocol::MessageId, transferred: u64) {
+        let id = hex::encode(id);
+        if let Some(transfer) = self
+            .view
+            .transfers
+            .iter_mut()
+            .find(|transfer| transfer.id == id)
+        {
+            transfer.transferred = transferred;
+        }
+    }
+    fn store_outgoing_file(&mut self, id: protocol::MessageId, file: &PreparedFile) -> bool {
+        if !self.current()
+            || !self.view.peer.as_ref().is_some_and(|peer| peer.ready)
+            || !self.file_capacity(file.data.len() as u64)
+            || self.has_stored_message(id)
+        {
+            self.error(
+                "Die Datei kann nicht im Tresor gespeichert werden. Bitte alte Verläufe löschen.",
+            );
+            return false;
+        }
+        let Some(contact_id) = self.view.peer.as_ref().map(|peer| peer.id.clone()) else {
+            return false;
+        };
+        let message_id = hex::encode(id);
+        let timestamp_ms = timestamp_ms();
+        if let Some(vault) = &mut self.vault {
+            vault.profile_mut().messages.push(vault::StoredMessage {
+                id: message_id.clone(),
+                contact_id: contact_id.clone(),
+                text: file.name.to_string(),
+                timestamp_ms,
+                outgoing: true,
+                status: vault::MessageStatus::Pending,
+                attachment_id: Some(message_id.clone()),
+            });
+            vault.profile_mut().attachments.push(vault::Attachment {
+                id: message_id,
+                contact_id,
+                name: file.name.to_string(),
+                data: file.data.to_vec(),
+                sha256: file.sha256,
+                outgoing: true,
+                timestamp_ms,
+            });
+        }
+        if !self.save() {
+            return false;
+        }
+        self.push_transfer(id, &file.name, file.data.len() as u64, true);
+        true
+    }
+    fn complete_incoming_file(&mut self, id: protocol::MessageId) {
+        let Some(mut file) = self.incoming_file.take() else {
+            self.disconnect("Dateiabschluss ohne angenommenes Angebot");
+            return;
+        };
+        if !self.current()
+            || !self.view.peer.as_ref().is_some_and(|peer| peer.ready)
+            || file.id != id
+            || !file.accepted
+            || file.data.len() as u64 != file.size
+            || <[u8; 32]>::from(Sha256::digest(&file.data)) != file.sha256
+        {
+            self.disconnect("Datei ist unvollständig oder wurde verändert");
+            return;
+        }
+        let message_id = hex::encode(id);
+        let Some(contact_id) = self.view.peer.as_ref().map(|peer| peer.id.clone()) else {
+            return;
+        };
+        if let Some(vault) = &mut self.vault {
+            let profile = vault.profile_mut();
+            let Some(message) = profile.messages.iter_mut().find(|message| {
+                message.id == message_id && message.contact_id == contact_id && !message.outgoing
+            }) else {
+                self.disconnect("Datei wurde nicht zum Empfang vorgemerkt");
+                return;
+            };
+            message.status = vault::MessageStatus::Received;
+            message.attachment_id = Some(message_id.clone());
+            profile.attachments.push(vault::Attachment {
+                id: message_id,
+                contact_id,
+                name: file.name.to_string(),
+                data: std::mem::take(&mut *file.data),
+                sha256: file.sha256,
+                outgoing: false,
+                timestamp_ms: timestamp_ms(),
+            });
+        }
+        if self.save() && self.current() {
+            self.transfer_state(id, FileTransferState::Stored);
+            if self.peer_command(PeerCommand::FileStored(id)).is_err() {
+                self.disconnect(
+                    "Datei gespeichert; Empfangsbestätigung konnte nicht gesendet werden",
+                );
+            }
+        } else {
+            self.disconnect("Datei konnte nicht sicher im Tresor gespeichert werden");
         }
     }
     fn update_delivery(&mut self, id: protocol::MessageId, status: vault::MessageStatus) {
@@ -1350,6 +2111,133 @@ impl Actor {
             self.disconnect("Nachrichtenstatus konnte nicht gespeichert werden");
         }
     }
+}
+
+fn parse_message_id(id: &str) -> anyhow::Result<protocol::MessageId> {
+    let mut bytes = [0; 16];
+    hex::decode_to_slice(id, &mut bytes)
+        .map_err(|_| anyhow::anyhow!("Ungültige Dateiübertragung."))?;
+    Ok(bytes)
+}
+
+fn await_persistence(durable: &Receiver<bool>, cancelled: &AtomicBool) -> anyhow::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        anyhow::ensure!(!cancelled.load(Ordering::Acquire), "Verbindung beendet.");
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "Das sichere Speichern hat das Zeitlimit erreicht."
+        );
+        match durable.recv_timeout(Duration::from_millis(100)) {
+            Ok(true) => {
+                anyhow::ensure!(!cancelled.load(Ordering::Acquire), "Verbindung beendet.");
+                return Ok(());
+            }
+            Ok(false) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("Inhalt konnte nicht sicher gespeichert werden.")
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
+fn prepare_file(path: &std::path::Path, cancelled: &AtomicBool) -> anyhow::Result<PreparedFile> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Der Dateiname kann nicht verarbeitet werden."))?;
+    anyhow::ensure!(
+        vault::valid_attachment_name(name) && name.len() <= protocol::MAX_FILE_NAME,
+        "Bitte eine Datei mit einem einfachen Dateinamen bis 180 UTF-8-Bytes wählen."
+    );
+    let mut source = std::fs::File::open(path)?;
+    let metadata = source.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "Bitte eine reguläre Datei wählen.");
+    anyhow::ensure!(
+        metadata.len() <= protocol::MAX_FILE_SIZE,
+        "Dateien dürfen höchstens 20 MiB groß sein."
+    );
+    let mut data = Zeroizing::new(Vec::with_capacity(metadata.len() as usize));
+    let mut chunk = Zeroizing::new([0_u8; protocol::MAX_FILE_CHUNK]);
+    loop {
+        anyhow::ensure!(
+            !cancelled.load(Ordering::Acquire),
+            "Dateiauswahl verworfen; Tresor gesperrt."
+        );
+        let count = source.read(&mut *chunk)?;
+        if count == 0 {
+            break;
+        }
+        anyhow::ensure!(
+            data.len().saturating_add(count) <= protocol::MAX_FILE_SIZE as usize,
+            "Die Datei ist während des Lesens zu groß geworden."
+        );
+        data.extend_from_slice(&chunk[..count]);
+    }
+    anyhow::ensure!(
+        !cancelled.load(Ordering::Acquire),
+        "Dateiauswahl verworfen; Tresor gesperrt."
+    );
+    let sha256 = Sha256::digest(&data).into();
+    Ok(PreparedFile {
+        name: Zeroizing::new(name.to_owned()),
+        data: Arc::new(data),
+        sha256,
+    })
+}
+
+/// Writes only the explicitly selected plaintext destination. An existing file
+/// is never overwritten; incomplete output is removed on failure/cancellation.
+fn export_attachment(
+    path: &std::path::Path,
+    data: &[u8],
+    digest: [u8; 32],
+    cancelled: &AtomicBool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        <[u8; 32]>::from(Sha256::digest(data)) == digest,
+        "Die gespeicherte Datei ist beschädigt."
+    );
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Ungültiger Zieldateiname."))?;
+    anyhow::ensure!(
+        vault::valid_attachment_name(name),
+        "Ungültiger Zieldateiname."
+    );
+    anyhow::ensure!(
+        !cancelled.load(Ordering::Acquire),
+        "Export verworfen; Tresor gesperrt."
+    );
+    let mut destination = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    let result = (|| -> anyhow::Result<()> {
+        for chunk in data.chunks(protocol::MAX_FILE_CHUNK) {
+            anyhow::ensure!(
+                !cancelled.load(Ordering::Acquire),
+                "Export verworfen; Tresor gesperrt."
+            );
+            destination.write_all(chunk)?;
+        }
+        anyhow::ensure!(
+            !cancelled.load(Ordering::Acquire),
+            "Export verworfen; Tresor gesperrt."
+        );
+        destination.sync_all()?;
+        anyhow::ensure!(
+            !cancelled.load(Ordering::Acquire),
+            "Export verworfen; Tresor gesperrt."
+        );
+        Ok(())
+    })();
+    drop(destination);
+    if result.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    result
 }
 
 fn timestamp_ms() -> u64 {
@@ -1430,6 +2318,8 @@ fn peer_loop(
         let mut hello_received = false;
         let mut local_confirmed = false;
         let mut confirmation_requested = false;
+        let mut outgoing_file: Option<OutgoingFile> = None;
+        let mut incoming_file_id = None;
         let trust_deadline = Instant::now() + Duration::from_secs(180);
         loop {
             if cancelled.load(Ordering::Acquire) {
@@ -1442,6 +2332,19 @@ fn peer_loop(
                 emit(PeerEvent::Ready)?;
                 ready_announced = true;
             }
+            if outgoing_file.as_ref().is_some_and(|file| {
+                file.activity.elapsed() > Duration::from_secs(if file.accepted { 90 } else { 180 })
+            }) {
+                anyhow::bail!("Dateiübertragung hat das Zeitlimit erreicht. Bitte neu verbinden.");
+            }
+            let poll = if outgoing_file
+                .as_ref()
+                .is_some_and(|file| file.accepted && !file.completed)
+            {
+                Duration::from_millis(1)
+            } else {
+                Duration::from_millis(100)
+            };
             select! {
                 recv(commands) -> command => {
                     let Ok(command) = command else { break; };
@@ -1461,20 +2364,41 @@ fn peer_loop(
                             let (message_id, frame) = session.send_chat(&text)?;
                             let (persisted, durable) = bounded(1);
                             emit(PeerEvent::Outgoing { id: message_id, text, persisted })?;
-                            let deadline = Instant::now() + Duration::from_secs(30);
-                            loop {
-                                anyhow::ensure!(!cancelled.load(Ordering::Acquire), "Verbindung beendet.");
-                                anyhow::ensure!(Instant::now() < deadline, "Das sichere Speichern hat das Zeitlimit erreicht.");
-                                match durable.recv_timeout(Duration::from_millis(100)) {
-                                    Ok(true) => break,
-                                    Ok(false) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => anyhow::bail!("Nachricht konnte nicht sicher gespeichert werden."),
-                                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                                }
-                            }
+                            await_persistence(&durable, &cancelled)?;
                             protocol::write_frame(&mut stream, &frame)?;
                             emit(PeerEvent::Sent(message_id))?;
                         }
                         PeerCommand::Ack(message_id) => { protocol::write_frame(&mut stream, &session.acknowledge(message_id)?)?; }
+                        PeerCommand::OfferFile(file) => {
+                            anyhow::ensure!(ready_announced && session.is_ready(), "Kontakt noch nicht beidseitig bestätigt.");
+                            anyhow::ensure!(outgoing_file.is_none(), "Es wird bereits eine Datei gesendet.");
+                            let (message_id, frame) = session.offer_file(&file.name, file.data.len() as u64, file.sha256)?;
+                            let (persisted, durable) = bounded(1);
+                            emit(PeerEvent::FileOffered { id: message_id, file: file.clone(), persisted })?;
+                            await_persistence(&durable, &cancelled)?;
+                            protocol::write_frame(&mut stream, &frame)?;
+                            outgoing_file = Some(OutgoingFile { id: message_id, file, offset: 0, accepted: false, completed: false, activity: Instant::now() });
+                        }
+                        PeerCommand::AcceptFile(message_id) => {
+                            if incoming_file_id == Some(message_id) {
+                                protocol::write_frame(&mut stream, &session.accept_file(message_id)?)?;
+                            }
+                        }
+                        PeerCommand::CancelFile(message_id) => {
+                            // A peer cancellation may overtake a UI click; stale clicks
+                            // must not terminate an otherwise healthy chat session.
+                            if outgoing_file.as_ref().is_some_and(|file| file.id == message_id) || incoming_file_id == Some(message_id) {
+                                if outgoing_file.as_ref().is_some_and(|file| file.id == message_id) { outgoing_file = None; }
+                                if incoming_file_id == Some(message_id) { incoming_file_id = None; }
+                                protocol::write_frame(&mut stream, &session.cancel_file(message_id)?)?;
+                            }
+                        }
+                        PeerCommand::FileStored(message_id) => {
+                            if incoming_file_id == Some(message_id) {
+                                protocol::write_frame(&mut stream, &session.file_stored(message_id)?)?;
+                                incoming_file_id = None;
+                            }
+                        }
                         PeerCommand::Close => { if let Ok(frame) = session.close() { let _ = protocol::write_frame(&mut stream, &frame); } break; }
                     }
                 }
@@ -1493,10 +2417,66 @@ fn peer_loop(
                         protocol::Event::TrustConfirmed => {}
                         protocol::Event::Chat { id, text } => { emit(PeerEvent::Chat { id, text: Zeroizing::new(text) })?; }
                         protocol::Event::Ack { id } => { emit(PeerEvent::Ack(id))?; }
+                        protocol::Event::FileOffer { id, name, size, sha256 } => {
+                            incoming_file_id = Some(id);
+                            emit(PeerEvent::FileOffer { id, name, size, sha256 })?;
+                        }
+                        protocol::Event::FileAccept { id } => {
+                            let file = outgoing_file.as_mut().ok_or_else(|| anyhow::anyhow!("Dateiannahme ohne Angebot."))?;
+                            anyhow::ensure!(file.id == id, "Ungültige Dateiannahme.");
+                            file.accepted = true;
+                            file.activity = Instant::now();
+                            emit(PeerEvent::FileAccepted(id))?;
+                        }
+                        protocol::Event::FileChunk { id, offset, data } => { emit(PeerEvent::FileChunk { id, offset, data: Zeroizing::new(data) })?; }
+                        protocol::Event::FileComplete { id } => { emit(PeerEvent::FileComplete(id))?; }
+                        protocol::Event::FileStored { id } => {
+                            anyhow::ensure!(outgoing_file.as_ref().is_some_and(|file| file.id == id && file.completed), "Dateibestätigung ohne Abschluss.");
+                            outgoing_file = None;
+                            emit(PeerEvent::FileStored(id))?;
+                        }
+                        protocol::Event::FileCancel { id } => {
+                            if outgoing_file.as_ref().is_some_and(|file| file.id == id) { outgoing_file = None; }
+                            if incoming_file_id == Some(id) { incoming_file_id = None; }
+                            protocol::write_frame(&mut stream, &session.acknowledge_file_cancel(id)?)?;
+                            emit(PeerEvent::FileCancelled(id))?;
+                        }
+                        protocol::Event::FileCancelAck { .. } | protocol::Event::FileDiscarded { .. } => {}
                         protocol::Event::Closed => { emit(PeerEvent::Closed)?; break; }
                     }
                 }
-                default(Duration::from_millis(100)) => {}
+                default(poll) => {}
+            }
+            // At most one bounded chunk per iteration. Commands, inbound chat,
+            // cancellation and receipts are polled between every two writes.
+            if let Some(file) = outgoing_file
+                .as_mut()
+                .filter(|file| file.accepted && !file.completed)
+            {
+                anyhow::ensure!(!cancelled.load(Ordering::Acquire), "Verbindung beendet.");
+                if file.offset < file.file.data.len() {
+                    let end = file
+                        .offset
+                        .saturating_add(protocol::MAX_FILE_CHUNK)
+                        .min(file.file.data.len());
+                    let frame = session.send_file_chunk(
+                        file.id,
+                        file.offset as u64,
+                        &file.file.data[file.offset..end],
+                    )?;
+                    protocol::write_frame(&mut stream, &frame)?;
+                    file.offset = end;
+                    file.activity = Instant::now();
+                    emit(PeerEvent::FileProgress {
+                        id: file.id,
+                        transferred: end as u64,
+                    })?;
+                } else {
+                    protocol::write_frame(&mut stream, &session.complete_file(file.id)?)?;
+                    file.completed = true;
+                    file.activity = Instant::now();
+                    emit(PeerEvent::FileSent(file.id))?;
+                }
             }
         }
         Ok(())
@@ -1920,6 +2900,347 @@ mod tests {
         assert!(matches!(durable.try_recv(), Ok(false)));
         assert!(actor.view.messages.is_empty());
         assert_eq!(std::fs::read(&actor.path)?, corrupt);
+        Ok(())
+    }
+
+    #[test]
+    fn files_require_consent_and_durable_storage_before_receipt() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        let data = b"SYNTHETIC_ATTACHMENT_UNIQUE_836194_UNICODE_FILE";
+        let id = [81; 16];
+        actor.peer_event(PeerEvent::FileOffer {
+            id,
+            name: "Grüsse 🦀.txt".into(),
+            size: data.len() as u64,
+            sha256: Sha256::digest(data).into(),
+        });
+        assert!(commands.try_recv().is_err(), "offers never auto-accept");
+        assert!(actor.view.messages.is_empty());
+        actor.command(&mut Command::RespondFile {
+            id: hex::encode(id),
+            accept: true,
+        })?;
+        assert!(matches!(commands.try_recv(), Ok(PeerCommand::AcceptFile(got)) if got == id));
+        assert_eq!(actor.view.messages[0].status, vault::MessageStatus::Pending);
+        actor.peer_event(PeerEvent::FileChunk {
+            id,
+            offset: 0,
+            data: Zeroizing::new(data.to_vec()),
+        });
+        assert!(
+            commands.try_recv().is_err(),
+            "a chunk does not prove complete storage"
+        );
+        actor.peer_event(PeerEvent::FileComplete(id));
+        assert!(matches!(commands.try_recv(), Ok(PeerCommand::FileStored(got)) if got == id));
+        assert_eq!(
+            actor.view.messages[0].status,
+            vault::MessageStatus::Received
+        );
+        assert!(
+            actor
+                .vault
+                .as_ref()
+                .is_some_and(|vault| vault.profile().attachments[0].data == data)
+        );
+        let encrypted = std::fs::read(&actor.path)?;
+        assert!(!encrypted.windows(data.len()).any(|window| window == data));
+        actor.clear();
+        assert!(actor.incoming_file.is_none() && actor.view.transfers.is_empty());
+        assert!(
+            actor
+                .command(&mut Command::SendFile {
+                    path: directory.path().join("never-read.txt")
+                })
+                .is_err()
+        );
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert!(
+            actor
+                .vault
+                .as_ref()
+                .is_some_and(|vault| vault.profile().attachments[0].data == data)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn file_corruption_or_failed_save_never_produces_storage_receipt() -> anyhow::Result<()> {
+        for fail_save in [false, true] {
+            let directory = tempfile::tempdir()?;
+            let (mut actor, _events) = actor_with_profile(&directory)?;
+            let commands = attach_synthetic_peer(&mut actor, true)?;
+            let data = b"SYNTHETIC_BINARY_FAILURE_CASE";
+            let id = [82; 16];
+            actor.peer_event(PeerEvent::FileOffer {
+                id,
+                name: "synthetic.bin".into(),
+                size: data.len() as u64,
+                sha256: if fail_save {
+                    Sha256::digest(data).into()
+                } else {
+                    [0; 32]
+                },
+            });
+            actor.command(&mut Command::RespondFile {
+                id: hex::encode(id),
+                accept: true,
+            })?;
+            assert!(matches!(
+                commands.try_recv(),
+                Ok(PeerCommand::AcceptFile(_))
+            ));
+            actor.peer_event(PeerEvent::FileChunk {
+                id,
+                offset: 0,
+                data: Zeroizing::new(data.to_vec()),
+            });
+            if fail_save {
+                std::fs::write(&actor.path, b"SYNTHETIC_EXTERNAL_CHANGE")?;
+            }
+            actor.peer_event(PeerEvent::FileComplete(id));
+            assert!(
+                !commands
+                    .try_iter()
+                    .any(|command| matches!(command, PeerCommand::FileStored(_)))
+            );
+            assert!(
+                actor
+                    .vault
+                    .as_ref()
+                    .is_some_and(|vault| vault.profile().attachments.is_empty())
+            );
+            assert!(actor.peer.is_none());
+            if fail_save {
+                assert_eq!(std::fs::read(&actor.path)?, b"SYNTHETIC_EXTERNAL_CHANGE");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn files_reject_untrusted_bytes_and_cancelled_inflight_bytes_are_discarded()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, false)?;
+        assert!(
+            actor
+                .command(&mut Command::SendFile {
+                    path: directory.path().join("never-open.txt")
+                })
+                .is_err()
+        );
+        actor.peer_event(PeerEvent::FileOffer {
+            id: [83; 16],
+            name: "untrusted.txt".into(),
+            size: 1,
+            sha256: [0; 32],
+        });
+        assert!(actor.peer.is_none() && actor.view.transfers.is_empty());
+        assert!(
+            commands
+                .try_iter()
+                .all(|command| !matches!(command, PeerCommand::AcceptFile(_)))
+        );
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        let id = [84; 16];
+        actor.peer_event(PeerEvent::FileOffer {
+            id,
+            name: "cancel.txt".into(),
+            size: 1,
+            sha256: Sha256::digest([42]).into(),
+        });
+        actor.command(&mut Command::RespondFile {
+            id: hex::encode(id),
+            accept: true,
+        })?;
+        actor.command(&mut Command::CancelFile {
+            id: hex::encode(id),
+        })?;
+        actor.peer_event(PeerEvent::FileChunk {
+            id,
+            offset: 0,
+            data: Zeroizing::new(vec![42]),
+        });
+        actor.peer_event(PeerEvent::FileComplete(id));
+        assert!(
+            actor.peer.is_some(),
+            "in-flight data crossing a cancellation must not kill chat"
+        );
+        assert!(actor.incoming_file.is_none());
+        assert_eq!(actor.view.messages[0].status, vault::MessageStatus::Failed);
+        assert!(
+            !commands
+                .try_iter()
+                .any(|command| matches!(command, PeerCommand::FileStored(_)))
+        );
+        actor.clear();
+        assert!(
+            actor.saved_profile.is_none()
+                && actor.view.messages.is_empty()
+                && actor.view.transfers.is_empty()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn outgoing_file_failure_never_authorizes_an_offer() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let _commands = attach_synthetic_peer(&mut actor, true)?;
+        let data = b"SYNTHETIC_UNSAVED_OUTGOING_FILE";
+        let file = PreparedFile {
+            name: Zeroizing::new("unsaved.bin".into()),
+            data: Arc::new(Zeroizing::new(data.to_vec())),
+            sha256: Sha256::digest(data).into(),
+        };
+        std::fs::write(&actor.path, b"SYNTHETIC_CHANGED_VAULT")?;
+        let (persisted, durable) = bounded(1);
+        actor.peer_event(PeerEvent::FileOffered {
+            id: [86; 16],
+            file,
+            persisted,
+        });
+        assert!(matches!(durable.try_recv(), Ok(false)));
+        assert!(actor.peer.is_none());
+        assert!(
+            actor
+                .vault
+                .as_ref()
+                .is_some_and(|vault| vault.profile().attachments.is_empty())
+        );
+        assert_eq!(std::fs::read(&actor.path)?, b"SYNTHETIC_CHANGED_VAULT");
+        let (saved, receipt) = bounded(1);
+        saved.send(true)?;
+        assert!(
+            await_persistence(&receipt, &AtomicBool::new(true)).is_err(),
+            "lock wins even when persistence was already reported successful"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn outgoing_file_receipt_and_exports_preserve_original_ciphertext() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let _commands = attach_synthetic_peer(&mut actor, true)?;
+        let source = directory.path().join("Quelle 🦀.txt");
+        let data = b"SYNTHETIC_OUTGOING_FILE_BYTES_19385";
+        std::fs::write(&source, data)?;
+        assert!(prepare_file(&source, &AtomicBool::new(true)).is_err());
+        let file = prepare_file(&source, &AtomicBool::new(false))?;
+        let id = [85; 16];
+        let (persisted, durable) = bounded(1);
+        actor.peer_event(PeerEvent::FileOffered {
+            id,
+            file,
+            persisted,
+        });
+        assert!(matches!(durable.try_recv(), Ok(true)));
+        assert_eq!(actor.view.messages[0].status, vault::MessageStatus::Pending);
+        actor.peer_event(PeerEvent::FileSent(id));
+        assert_eq!(actor.view.messages[0].status, vault::MessageStatus::Sent);
+        actor.peer_event(PeerEvent::FileStored(id));
+        assert_eq!(
+            actor.view.messages[0].status,
+            vault::MessageStatus::Received
+        );
+        let destination = directory.path().join("Export.txt");
+        let digest = Sha256::digest(data).into();
+        export_attachment(&destination, data, digest, &AtomicBool::new(false))?;
+        assert_eq!(std::fs::read(&destination)?, data);
+        assert!(
+            export_attachment(
+                &destination,
+                b"overwrite",
+                Sha256::digest(b"overwrite").into(),
+                &AtomicBool::new(false)
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&destination)?, data);
+        let cancelled = directory.path().join("cancelled.txt");
+        assert!(export_attachment(&cancelled, data, digest, &AtomicBool::new(true)).is_err());
+        assert!(!cancelled.exists());
+        let corrupt = directory.path().join("corrupt.txt");
+        assert!(export_attachment(&corrupt, data, [0; 32], &AtomicBool::new(false)).is_err());
+        assert!(!corrupt.exists());
+        actor.disconnect("synthetic test disconnect");
+        actor.command(&mut Command::DeleteHistory {
+            contact_id: hex::encode([13; 32]),
+        })?;
+        assert!(
+            actor
+                .vault
+                .as_ref()
+                .is_some_and(|vault| vault.profile().attachments.is_empty()
+                    && vault.profile().messages.is_empty())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn chosen_existing_vault_is_never_overwritten_and_preferences_survive_lock()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        actor.command(&mut Command::SetDesktopSettings {
+            start_with_windows: false,
+            minimize_to_tray: false,
+            automatic_updates: false,
+        })?;
+        // A legacy profile's defaults must not undo a global update opt-out.
+        if let Some(vault) = &mut actor.vault {
+            vault.profile_mut().settings.automatic_updates = true;
+            vault.save()?;
+        }
+        actor.clear();
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert!(!actor.view.automatic_updates);
+        actor.clear();
+        assert!(
+            !actor.view.automatic_updates
+                && !actor.view.start_with_windows
+                && !actor.view.minimize_to_tray
+        );
+        let selected = directory.path().join("existing.vault");
+        std::fs::write(&selected, b"SYNTHETIC_DAMAGED_EXISTING_FILE")?;
+        actor.command(&mut Command::ChooseVault {
+            path: selected.clone(),
+        })?;
+        assert_eq!(actor.path, selected);
+        assert!(
+            actor
+                .command(&mut Command::Create {
+                    name: "Synthetic".into(),
+                    password: Zeroizing::new("synthetic-password-123".into())
+                })
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(&selected)?,
+            b"SYNTHETIC_DAMAGED_EXISTING_FILE"
+        );
+        assert!(
+            actor
+                .command(&mut Command::Unlock {
+                    password: Zeroizing::new("synthetic-password-123".into())
+                })
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(&selected)?,
+            b"SYNTHETIC_DAMAGED_EXISTING_FILE"
+        );
+        assert_eq!(storage_location::load(&actor.default_path)?, selected);
+        assert!(!storage_location::load_preferences(&actor.default_path)?.automatic_updates);
         Ok(())
     }
 
