@@ -506,6 +506,7 @@ pub fn launch_installer(update: &VerifiedUpdate) -> Result<()> {
                 "/CLOSEAPPLICATIONS",
                 "/RESTARTAPPLICATIONS",
             ])
+            .arg(format!("/HUSHLINKPARENTPID={}", std::process::id()))
             .spawn()
             .context("Update-Installation konnte nicht gestartet werden.")?;
         update.staging.launched.store(true, Ordering::Release);
