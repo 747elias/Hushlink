@@ -1,0 +1,23 @@
+# Installation und Aktualisierungen
+
+Hushlink wird pro Windows-Benutzer installiert. Der Installer benötigt keine Administratorrechte. Die App, ihre Deinstallation und ein Update verändern oder löschen keinen Tresor. Der gewählte Speicherort des verschlüsselten Tresors bleibt erhalten. Der Autostart kann in der App ein- und ausgeschaltet werden; er startet Hushlink gesperrt im Infobereich.
+
+Die Einstellung für automatische Updates erlaubt die sichtbare Prüfung auf neue Versionen und deren Download im Hintergrund. Dafür ist eine Internetverbindung zu GitHub erforderlich; Bluetooth-Chat und Tresor funktionieren weiterhin ohne Internet. Die Einstellung kann deaktiviert werden. Es werden keine Kontakte, Nachrichten, Dateiinhalte, Passwörter oder Gerätekennungen an GitHub übertragen. GitHub sieht insbesondere die IP-Adresse und den HTTP-Clientnamen. Eine Installation beginnt erst nach ausdrücklicher Bestätigung in der App; dabei werden Sitzungen beendet und der Tresor gesperrt. Der Installer startet die aktualisierte App wieder gesperrt im Infobereich.
+
+## Vertrauensmodell
+
+Die Quelle ist fest auf das öffentliche Repository `747elias/Hushlink` festgelegt. Die App fragt höchstens 20 Veröffentlichungen über `https://api.github.com/repos/747elias/Hushlink/releases?per_page=20` ab. Entwürfe werden ignoriert, Prereleases berücksichtigt. Eine neue Version muss eine größere semantische Versionsnummer als die laufende App besitzen; die Veröffentlichungsreihenfolge ist kein Versionsvergleich. Es gibt keinen stillen Wechsel auf einen anderen Update-Anbieter.
+
+Die App erwartet die Dateien `Hushlink-v<VERSION>-windows-x64-setup.exe` und `SHA256SUMS.txt` genau unter dem Versions-Tag im selben Repository. Sie akzeptiert ausschließlich HTTPS mit normaler Zertifikatsprüfung. Weiterleitungen sind auf `github.com`, `api.github.com`, `release-assets.githubusercontent.com` und `objects.githubusercontent.com` begrenzt. Zugangsdaten werden nicht mitgeschickt. Metadaten sind auf 2 MiB, Prüfsummen auf 64 KiB und der Installer auf 100 MiB begrenzt. Downloadgröße, SHA-256 und der Windows-PE-Dateikopf werden geprüft. Ein x86-Installer-Bootstrap ist ebenso zulässig wie ein x64-Bootstrap; beide installieren die x64-App.
+
+Dies ist **keine digitale Herausgebersignatur**. HTTPS und die Prüfsumme aus derselben Veröffentlichung vertrauen GitHub sowie den Personen und Zugangsdaten, die das Repository und Releases veröffentlichen können. Ein kompromittiertes Herausgeberkonto kann auch passende Prüfsummen veröffentlichen. Ohne eine separat eingerichtete legitime Signiermöglichkeit bleiben Installer und App unsigniert; Windows kann deshalb einen SmartScreen-Hinweis anzeigen. Es wird kein selbst erstelltes Zertifikat als Vertrauensnachweis ausgegeben.
+
+## Download und Installation
+
+Die Update-Dateien liegen in einem zufälligen Unterordner des lokalen Hushlink-Cacheordners, getrennt vom Tresor. Eine neue Datei wird exklusiv angelegt; unfertige Downloads tragen die Endung `.part`. Abbruch und Fehler entfernen die Dateien dieses Downloadvorgangs. Ein Abbruch wird zwischen Netzwerk-Lesevorgängen geprüft; Anfragen haben begrenzte Zeitüberschreitungen. Die Oberfläche und das Sperren des Tresors warten nicht auf den Netzwerk-Thread.
+
+Unmittelbar vor dem Start werden Größe, Prüfsumme und PE-Format erneut geprüft. Unter Windows verhindert ein offenes Dateihandle während dieses Schritts Änderungen und Austausch bis zum Prozessstart. Die App startet ausschließlich den bereits geprüften Installer mit festen Argumenten, ohne Erhöhung der Rechte. Nach erfolgreichem Start beendet sich Hushlink; der Installer kann dadurch Dateien ersetzen. Nach dem Start bleibt der Cacheeintrag erhalten, damit der Installer seinen Bootstrap vollständig lesen kann. Nach abgeschlossener Installation darf dieser Update-Cache manuell entfernt werden. Der Tresor wird weder in den Cache kopiert noch in eine Update-Anfrage aufgenommen.
+
+## Prüfstatus
+
+Automatische Tests prüfen Versionsauswahl einschließlich Prereleases, fehlende und mehrdeutige Assets, feste Adressen, Größenbegrenzungen, Prüfsummenformat, Verzeichnispfade, Abbruch, unvollständige und manipulierte Dateien, PE-Format und Bereinigung. Sie verwenden ausschließlich künstliche Daten und führen keinen Installer aus. Windows-CI prüft zusätzlich den wirklichen Installer separat. Nutzer von v0.1.0 installieren v0.2.0 zunächst manuell; die integrierte Aktualisierung gilt ab v0.2.0 für künftige Versionen. Die vollständige Aktualisierung zwischen zwei installierten Versionen auf einem physischen Windows-11-PC bleibt ein ausdrücklich zu dokumentierender manueller Test.
