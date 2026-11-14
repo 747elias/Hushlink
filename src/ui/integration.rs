@@ -591,6 +591,11 @@ impl App {
                 });
             }
             if transfers.is_empty() { ui.label("Noch keine Dateiübertragung in dieser Sitzung."); }
+            ui.separator(); ui.heading("Gespeicherte Fortsetzungspunkte");
+            ui.label("Nach neuer Verbindung bietet die sendende Person ihre fehlgeschlagene Datei im Verlauf erneut an. Die empfangende Person bestätigt noch einmal. Bereits gespeicherte Bytes werden geprüft und übersprungen. Explizites Abbrechen verwirft die empfangenen Bytes.");
+            for partial in self.view.partials.clone() {
+                ui.group(|ui| { ui.strong(&partial.name); ui.label(format!("{} von {} verschlüsselt gesichert", bytes(partial.saved), bytes(partial.size))); if ui.add_enabled(self.view.peer.is_none(), egui::Button::new("Fortsetzungspunkt löschen")).clicked() { self.command(Command::DiscardPartial { id: partial.id.clone() }); } });
+            }
         });
         if !open {
             self.integration.transfers_open = false;

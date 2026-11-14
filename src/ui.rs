@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, RichText, Vec2};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
+mod features;
 mod integration;
 use integration::{Integration, Picker};
 
@@ -107,6 +108,7 @@ fn configure(ctx: &egui::Context) {
 }
 
 struct App {
+    features: features::Features,
     integration: Integration,
     runtime: Option<Runtime>,
     generation: u64,
@@ -135,6 +137,7 @@ impl App {
         };
         let generation = runtime.as_ref().map_or(0, Runtime::generation);
         Self {
+            features: Default::default(),
             integration: Integration::new(ctx),
             runtime,
             generation,
@@ -182,6 +185,7 @@ impl App {
     }
 
     fn clear_locked_ui(&mut self, ctx: &egui::Context) {
+        self.features.clear();
         self.integration.clear_sensitive();
         let path = std::mem::take(&mut self.view.vault_path);
         self.view = View::default();
@@ -225,6 +229,13 @@ impl App {
                         && (changed_peer || self.selected.is_none())
                     {
                         self.selected = Some(peer.id.clone());
+                    }
+                    if self.selected.as_ref().is_some_and(|id| {
+                        !view.contacts.iter().any(|c| &c.id == id)
+                            && !view.peer.as_ref().is_some_and(|p| &p.id == id)
+                    }) {
+                        self.selected.zeroize();
+                        self.selected = None;
                     }
                     self.integration.preferences_snapshot(&view);
                     self.view = view;
@@ -317,6 +328,9 @@ impl App {
         }
         ui.separator();
         ui.label(RichText::new("VERBINDUNG").small().color(MUTED));
+        if ui.button("Verbindungsassistent …").clicked() {
+            self.features.wizard = true;
+        }
         ui.label(&self.view.availability);
         ui.label(RichText::new(&self.view.status).small().color(MUTED));
         ui.add_enabled_ui(!self.busy, |ui| {
@@ -395,12 +409,26 @@ impl App {
                     if ui
                         .selectable_label(
                             self.selected.as_deref() == Some(&contact.id),
-                            &contact.name,
+                            format!(
+                                "{}{}{}",
+                                if contact.favorite { "★ " } else { "" },
+                                contact.name,
+                                if contact.unread > 0 {
+                                    format!(" ({})", contact.unread)
+                                } else {
+                                    String::new()
+                                }
+                            ),
                         )
                         .clicked()
                     {
                         self.selected = Some(contact.id.clone());
                         self.delete_requested = false;
+                    }
+                    if self.selected.as_deref() == Some(&contact.id)
+                        && ui.small_button("Kontakt verwalten …").clicked()
+                    {
+                        self.open_contact(&contact.id);
                     }
                     if self.selected.as_deref() == Some(&contact.id)
                         && self.view.peer.is_none()
@@ -537,6 +565,7 @@ impl App {
         let height = (ui.available_height() - composer_height).max(100.0);
         let mut has_messages = false;
         let mut export_file: Option<String> = None;
+        let mut retry_file: Option<String> = None;
         egui::ScrollArea::vertical().id_salt("messages").stick_to_bottom(true).auto_shrink([false, false]).max_height(height).show(ui, |ui| {
             for message in &self.view.messages {
                 if self.selected.as_deref() != Some(&message.contact_id) { continue; }
@@ -553,6 +582,7 @@ impl App {
                                     export_file = Some(id.clone());
                                 }
                             }
+                            if message.can_resume && ui.add_enabled(ready, egui::Button::new("Erneut anbieten / fortsetzen")).clicked() { retry_file = Some(message.id.clone()); }
                             let state = match message.status {
                                 MessageStatus::Pending => "Ausstehend",
                                 MessageStatus::Sent => "Gesendet",
@@ -575,6 +605,10 @@ impl App {
                 });
             }
         });
+        if let Some(id) = retry_file {
+            self.command(Command::RetryFile { id });
+            self.integration.transfers_open = true;
+        }
         if let Some(id) = export_file {
             self.pick(Picker::Export { id }, ui.ctx());
         }
@@ -638,6 +672,10 @@ impl App {
             self.desktop_settings(ui);
             ui.separator();
             ui.add_enabled_ui(self.view.unlocked, |ui| {
+            let mut notifications = self.view.notifications;
+            if ui.checkbox(&mut notifications, "Private Windows-Benachrichtigungen aktivieren").changed() { self.command(Command::SetNotifications { enabled: notifications }); }
+            ui.label(RichText::new("Ohne Namen, Dateinamen oder Nachrichtenvorschau. Nur bei entsperrtem Hushlink im Hintergrund; Windows kann Mitteilungen unterdrücken. Schliessen ins Tray sperrt weiterhin und trennt Verbindungen.").small().color(MUTED));
+            ui.separator();
             ui.heading("Automatisch sperren");
             let mut minutes = self.view.inactivity_minutes.max(1);
             if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Min.")).changed() { self.command(Command::SetInactivity { minutes }); }
@@ -681,6 +719,7 @@ impl eframe::App for App {
         self.events();
         self.integration_events(ctx);
         self.handle_close(ctx);
+        self.feature_events(ctx);
         // Check expiry before accepting new input after a suspended/occluded frame.
         if self.view.unlocked
             && self.last_activity.elapsed()
@@ -728,6 +767,7 @@ impl eframe::App for App {
         }
         self.settings(ctx);
         self.file_window(ctx);
+        self.feature_windows(ctx);
         ctx.request_repaint_after(Duration::from_millis(200));
     }
 }

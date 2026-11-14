@@ -15,7 +15,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::{
@@ -124,6 +124,7 @@ struct Shared {
     shutdown: AtomicBool,
     available: AtomicBool,
     window: AtomicUsize,
+    notices: Mutex<Option<Arc<crate::notifications::NotificationSignal>>>,
 }
 
 impl Shared {
@@ -169,6 +170,7 @@ impl DesktopIntegration {
             shutdown: AtomicBool::new(false),
             available: AtomicBool::new(false),
             window: AtomicUsize::new(0),
+            notices: Mutex::new(None),
         });
         let (ready, initialization) = mpsc::sync_channel(1);
         let worker_shared = Arc::clone(&shared);
@@ -193,6 +195,12 @@ impl DesktopIntegration {
 
     pub fn try_event(&self) -> Option<DesktopEvent> {
         self.events.try_recv().ok()
+    }
+
+    pub fn set_notification_signal(&self, signal: Arc<crate::notifications::NotificationSignal>) {
+        if let Ok(mut slot) = self.shared.notices.lock() {
+            *slot = Some(signal);
+        }
     }
 
     pub fn set_waker(&self, wake: impl Fn() + Send + Sync + 'static) {
@@ -230,6 +238,9 @@ struct WindowState {
     menu_open: Cell<bool>,
     use_shell: bool,
     show_event: Option<OwnedHandle>,
+    last_notice: Cell<Option<Instant>>,
+    unread: Cell<u32>,
+    notification_enabled: Cell<bool>,
 }
 
 struct NativeWindow {
@@ -321,6 +332,9 @@ impl NativeWindow {
                 icon_added: Cell::new(false),
                 menu_open: Cell::new(false),
                 use_shell,
+                last_notice: Cell::new(None),
+                unread: Cell::new(0),
+                notification_enabled: Cell::new(false),
                 // SAFETY: opens only this logon session's existing event with
                 // synchronization rights; it cannot modify someone else's Run
                 // value or unlock a vault. Tests need not own an app instance.
@@ -458,6 +472,82 @@ fn add_icon(window: HWND, state: &WindowState) -> bool {
     added
 }
 
+// Shell_NotifyIcon balloons require neither package identity nor registration.
+// All text is fixed and content-free; the actor's signal is cleared immediately
+// on lock. Explorer decides whether notifications may actually be displayed.
+fn update_notifications(window: HWND, state: &WindowState) {
+    let signal = state.shared.notices.lock().ok().and_then(|s| s.clone());
+    let Some(signal) = signal else {
+        return;
+    };
+    // Native focus remains observable while a minimized egui window stops painting.
+    let mut foreground_process = 0;
+    let foreground = unsafe { GetForegroundWindow() };
+    if !foreground.is_null() {
+        unsafe {
+            GetWindowThreadProcessId(foreground, &mut foreground_process);
+        }
+    }
+    signal.set_foreground(foreground_process == unsafe { GetCurrentProcessId() });
+    let enabled = signal.enabled();
+    if state.notification_enabled.replace(enabled) && !enabled && state.use_shell {
+        let mut data = icon_data(window, state);
+        data.uFlags = NIF_INFO;
+        unsafe {
+            Shell_NotifyIconW(NIM_MODIFY, &data);
+        }
+    }
+    let unread = signal.unread();
+    if unread != state.unread.get() {
+        let mut data = icon_data(window, state);
+        data.uFlags = NIF_TIP | NIF_SHOWTIP;
+        data.szTip.fill(0);
+        let tip = if unread == 0 {
+            "Hushlink – verschlüsselter Bluetooth-Chat".to_owned()
+        } else {
+            format!("Hushlink – {unread} ungelesene Nachrichten oder Dateien")
+        };
+        for (slot, c) in data.szTip.iter_mut().zip(tip.encode_utf16()) {
+            *slot = c;
+        }
+        if unread == 0 {
+            data.uFlags |= NIF_INFO;
+        }
+        if state.use_shell {
+            unsafe {
+                Shell_NotifyIconW(NIM_MODIFY, &data);
+            }
+        }
+        state.unread.set(unread);
+    }
+    if state
+        .last_notice
+        .get()
+        .is_none_or(|time| time.elapsed() >= Duration::from_secs(3))
+        && signal.take() > 0
+    {
+        let mut data = icon_data(window, state);
+        data.uFlags = NIF_INFO | NIF_REALTIME;
+        data.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND | NIIF_RESPECT_QUIET_TIME;
+        for (slot, c) in data.szInfoTitle.iter_mut().zip("Hushlink".encode_utf16()) {
+            *slot = c;
+        }
+        for (slot, c) in data
+            .szInfo
+            .iter_mut()
+            .zip("Neue Nachrichten oder Dateien. Zum Öffnen hier klicken.".encode_utf16())
+        {
+            *slot = c;
+        }
+        if state.use_shell {
+            unsafe {
+                Shell_NotifyIconW(NIM_MODIFY, &data);
+            }
+        }
+        state.last_notice.set(Some(Instant::now()));
+    }
+}
+
 fn handle_command(state: &WindowState, command: usize) {
     let event = match command {
         SHOW => DesktopEvent::Show,
@@ -536,8 +626,10 @@ unsafe extern "system" fn window_proc(
         match message {
             CALLBACK => {
                 let event = lparam as u32 & 0xffff;
-                if matches!(event, WM_LBUTTONUP | WM_LBUTTONDBLCLK | NIN_SELECT)
-                    || event == (NIN_SELECT | NINF_KEY)
+                if matches!(
+                    event,
+                    WM_LBUTTONUP | WM_LBUTTONDBLCLK | NIN_SELECT | NIN_BALLOONUSERCLICK
+                ) || event == (NIN_SELECT | NINF_KEY)
                 {
                     state.shared.emit(DesktopEvent::Show);
                 } else if matches!(event, WM_RBUTTONUP | WM_CONTEXTMENU) {
@@ -569,6 +661,7 @@ unsafe extern "system" fn window_proc(
                     if state.use_shell && !state.icon_added.get() {
                         add_icon(window, state);
                     }
+                    update_notifications(window, state);
                 }
                 return 0;
             }
@@ -799,6 +892,7 @@ mod tests {
             shutdown: AtomicBool::new(false),
             available: AtomicBool::new(false),
             window: AtomicUsize::new(0),
+            notices: Mutex::new(None),
         });
         let (ready, initialization) = mpsc::sync_channel(1);
         let worker_shared = Arc::clone(&shared);

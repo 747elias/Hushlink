@@ -7,3 +7,5 @@ pub mod vault;
 pub mod desktop;
 pub mod storage_location;
 pub mod updater;
+
+pub mod notifications;

@@ -1,0 +1,15 @@
+# Hushlink v0.3.0 – Benachrichtigungen und Dateifortsetzung
+
+Vorabversion für Windows 11 x64. Empfohlen: **Hushlink-v0.3.0-windows-x64-setup.exe**. Benutzerinstallation ohne Administratorrechte, mit Tray, Startmenü und wählbarem Windows-Autostart. Separate EXE und ZIP bleiben verfügbar, alle drei Downloads stehen in SHA256SUMS.txt. Unsigniert; SmartScreen kann warnen.
+
+- Private Windows-Mitteilungen und ungelesene Zähler. Mitteilungen enthalten weder Namen noch Dateinamen oder Nachrichteninhalt. Sie werden bei entsperrter App im Hintergrund ausgelöst; Windows kann sie unterdrücken. Schliessen ins Tray sperrt weiterhin und beendet Verbindungen.
+- Unterbrochenen Dateiversand nach einer neuen bestätigten Verbindung aus dem Verlauf erneut anbieten. Erneute ausdrückliche Annahme, Prüfung des bereits gespeicherten Dateiteils und Weiterübertragung. Checkpoints bleiben verschlüsselt im selben Tresor. Keine Wiederverwendung alter Sitzungsschlüssel oder Nonces. Bei Absturz kann höchstens der letzte ungesicherte Abschnitt erneut nötig sein. Explizites Abbrechen verwirft die empfangenen Bytes.
+- Drag & Drop für bis zu 16 lokale Dateien, mit Empfängeranzeige und bewusster Freigabe jeder Datei; weiterhin höchstens 20 MiB je Datei und ausdrückliche Annahme auf der Gegenseite. Kein automatisches Öffnen.
+- Kontakt-Eigennamen, Favoriten, ungelesene Zähler, Geräteübersicht und bewusstes Entfernen von Kontakt samt lokalem Verlauf. Eigene Namen ersetzen keine Identitätsprüfung.
+- Verbindungsassistent für Adapterprüfung, Windows-Pairing, Empfang/Suche, Verbindungsanfragen und den beidseitigen Sicherheitscode. Er zeigt nur tatsächliche Zustände und umgeht keine Schlüsselwechselwarnung.
+
+Vor dem Update die geschlossene Tresordatei sichern. v0.3 liest v0.1-/v0.2-Profile und erweitert sie beim Speichern; die alten Apps sind danach kein Rückweg. Beide Chatpartner benötigen v0.3 (Protokollversion 3). Bestätigte Identitätsschlüssel bleiben erhalten.
+
+Die Veröffentlichung wird durch Format, strenges Clippy, Tests, nativen Windows-MSVC-Build, EXE-Start und vollständige Installer-/Tray-/Update-Übergabe-/Deinstallationsprüfungen für genau den Tag-Commit gesperrt. Danach werden die tatsächlichen öffentlichen Downloads auf Commit, Hashes, PE-Format und ZIP-Gleichheit geprüft. Ergebnisse: [Actions](https://github.com/747elias/Hushlink/actions) und [Prüfstand](https://github.com/747elias/Hushlink/blob/v0.3.0/docs/VALIDATION.md).
+
+Noch nicht als Hardwaretest durchgeführt: Bluetooth-Text-/Dateichat und Funkunterbruch zwischen zwei physischen Windows-11-PCs, echte Win+L-/Skalierungs-/Benachrichtigungsabnahme, Explorer-Neustart und vollständiges Upgrade zwischen verschiedenen installierten Versionen auf Benutzerhardware. Automatische Tests sind kein Funknachweis. Kein externer Sicherheitsaudit, keine zugesicherte Anonymität. [Manueller Ablauf](https://github.com/747elias/Hushlink/blob/v0.3.0/docs/MANUAL-TEST.md).

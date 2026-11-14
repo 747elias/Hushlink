@@ -2,7 +2,7 @@
 
 This file preserves license/copyright texts for the locked Windows normal/build dependency graph, including build-only crates. Test-only dependencies are excluded. For a crate offered under MIT OR Apache-2.0, the MIT option is used where available; additional shipped notices are retained for completeness. Font licenses apply to the embedded font software. Hushlink's own license is in LICENSE.
 
-Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `9404760edb2c8c44f331c27a53d41781bd9b4322c3afd04b31986c0a39022e43`.
+Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `3d7d3d760ea42c444a9cf7ba151a853cd696da0a880fc09eb8d014e3cfabb112`.
 
 The lockfile hash normalizes CRLF to LF so Windows checkout line endings do not change dependency identity.
 

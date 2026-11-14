@@ -23,9 +23,9 @@ pub const MAX_SESSION_FRAMES: usize = 65_536;
 pub const MAX_FILE_SIZE: u64 = 20 * 1024 * 1024;
 pub const MAX_FILE_CHUNK: usize = 8_192;
 pub const MAX_FILE_NAME: usize = 180;
-const CONTEXT: &[u8] = b"Hushlink/v2/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
-const MAGIC: &[u8; 5] = b"HUSH\x02";
-const VERSION: u8 = 2;
+const CONTEXT: &[u8] = b"Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
+const MAGIC: &[u8; 5] = b"HUSH\x03";
+const VERSION: u8 = 3;
 pub type MessageId = [u8; 16];
 pub type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -210,6 +210,11 @@ pub enum Event {
     FileAccept {
         id: MessageId,
     },
+    FileResume {
+        id: MessageId,
+        offset: u64,
+        prefix_sha256: [u8; 32],
+    },
     FileChunk {
         id: MessageId,
         offset: u64,
@@ -373,7 +378,7 @@ pub fn security_fingerprint(first: &[u8; 32], second: &[u8; 32]) -> String {
         (second, first)
     };
     let mut hash = Sha256::new();
-    hash.update(b"Hushlink identity fingerprint\0v2\0");
+    hash.update(b"Hushlink identity fingerprint\0v3\0");
     hash.update(CONTEXT);
     hash.update(low);
     hash.update(high);
@@ -516,23 +521,32 @@ impl Session {
         size: u64,
         sha256: [u8; 32],
     ) -> Result<(MessageId, Vec<u8>)> {
+        let mut id = [0_u8; 16];
+        OsRng
+            .try_fill_bytes(&mut id)
+            .map_err(|_| ProtocolError::Crypto)?;
+        let frame = self.offer_file_with_id(id, name, size, sha256)?;
+        Ok((id, frame))
+    }
+
+    /// A stable application transfer ID may cross fresh sessions; cipher state never does.
+    pub fn offer_file_with_id(
+        &mut self,
+        id: MessageId,
+        name: &str,
+        size: u64,
+        sha256: [u8; 32],
+    ) -> Result<Vec<u8>> {
         self.ensure_ready()?;
         validate_file_name(name)?;
         if size > MAX_FILE_SIZE {
             return Err(ProtocolError::InvalidFile);
         }
-        if self.outgoing_file.is_some() {
+        if self.outgoing_file.is_some() || self.sent.contains(&id) || self.received.contains(&id) {
             return Err(ProtocolError::InvalidMessage);
         }
         if self.sent.len() >= MAX_SESSION_MESSAGES {
             return Err(ProtocolError::SessionLimit);
-        }
-        let mut id = [0_u8; 16];
-        OsRng
-            .try_fill_bytes(&mut id)
-            .map_err(|_| ProtocolError::Crypto)?;
-        if self.sent.contains(&id) || self.received.contains(&id) {
-            return self.fail(ProtocolError::Crypto);
         }
         let mut plaintext = Zeroizing::new(vec![VERSION, 6]);
         plaintext.extend_from_slice(&id);
@@ -547,7 +561,7 @@ impl Session {
             next_offset: 0,
             phase: FilePhase::Offered,
         });
-        Ok((id, frame))
+        Ok(frame)
     }
 
     pub fn accept_file(&mut self, id: MessageId) -> Result<Vec<u8>> {
@@ -556,6 +570,35 @@ impl Session {
         let frame = self.file_control(7, id)?;
         if let Some(transfer) = self.incoming_file.as_mut() {
             transfer.phase = FilePhase::Accepted;
+        }
+        Ok(frame)
+    }
+
+    /// Resume only after fresh trust and explicit consent. The caller binds this
+    /// prefix hash to encrypted, identity-bound persisted application data.
+    pub fn resume_file(
+        &mut self,
+        id: MessageId,
+        offset: u64,
+        prefix_sha256: [u8; 32],
+    ) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        self.require_incoming(id, FilePhase::Offered)?;
+        if self
+            .incoming_file
+            .as_ref()
+            .is_none_or(|f| offset == 0 || offset > f.size)
+        {
+            return Err(ProtocolError::InvalidFile);
+        }
+        let mut plain = Zeroizing::new(vec![VERSION, 13]);
+        plain.extend_from_slice(&id);
+        plain.extend_from_slice(&offset.to_be_bytes());
+        plain.extend_from_slice(&prefix_sha256);
+        let frame = self.encrypt(&plain)?;
+        if let Some(f) = &mut self.incoming_file {
+            f.phase = FilePhase::Accepted;
+            f.next_offset = offset;
         }
         Ok(frame)
     }
@@ -802,6 +845,48 @@ impl Session {
                     transfer.phase = FilePhase::Accepted;
                 }
                 Ok(Event::FileAccept { id })
+            }
+            13 => {
+                self.ensure_ready()?;
+                if payload.len() != 56 {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let id = parse_id(&payload[..16])?;
+                let offset = u64::from_be_bytes(
+                    payload[16..24]
+                        .try_into()
+                        .map_err(|_| ProtocolError::InvalidMessage)?,
+                );
+                let prefix_sha256 = payload[24..]
+                    .try_into()
+                    .map_err(|_| ProtocolError::InvalidMessage)?;
+                if let Some(cancelled) = self.cancelled_files.get_mut(&id) {
+                    if cancelled.direction != FileDirection::Outgoing
+                        || cancelled.transfer.phase != FilePhase::Offered
+                        || offset == 0
+                        || offset > cancelled.transfer.size
+                    {
+                        return Err(ProtocolError::InvalidMessage);
+                    }
+                    cancelled.transfer.phase = FilePhase::Accepted;
+                    cancelled.transfer.next_offset = offset;
+                    return Ok(Event::FileDiscarded { id });
+                }
+                self.require_outgoing(id, FilePhase::Offered)?;
+                let transfer = self
+                    .outgoing_file
+                    .as_mut()
+                    .ok_or(ProtocolError::InvalidMessage)?;
+                if offset == 0 || offset > transfer.size {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                transfer.phase = FilePhase::Accepted;
+                transfer.next_offset = offset;
+                Ok(Event::FileResume {
+                    id,
+                    offset,
+                    prefix_sha256,
+                })
             }
             8 => {
                 self.ensure_ready()?;
@@ -1181,6 +1266,88 @@ mod tests {
         a.receive(&confirm).unwrap();
         assert!(a.is_ready() && b.is_ready());
         (a, b)
+    }
+
+    #[test]
+    fn file_resume_uses_new_noise_session_and_requires_fresh_consent() {
+        let (mut a, mut b) = ready_pair();
+        let data = b"SYNTHETIC_PROTOCOL_RESUME";
+        let digest = Sha256::digest(data).into();
+        let (id, offer) = a
+            .offer_file("resume.bin", data.len() as u64, digest)
+            .unwrap();
+        b.receive(&offer).unwrap();
+        let accept = b.accept_file(id).unwrap();
+        a.receive(&accept).unwrap();
+        let old = a.send_file_chunk(id, 0, &data[..5]).unwrap();
+        b.receive(&old).unwrap();
+        a.abort();
+        b.abort();
+        let (mut a, mut b) = ready_pair();
+        let offer = a
+            .offer_file_with_id(id, "resume.bin", data.len() as u64, digest)
+            .unwrap();
+        b.receive(&offer).unwrap();
+        assert!(a.send_file_chunk(id, 5, &data[5..]).is_err());
+        assert!(b.resume_file(id, 0, [0; 32]).is_err());
+        assert!(b.resume_file(id, data.len() as u64 + 1, [0; 32]).is_err());
+        let resume = b
+            .resume_file(id, 5, Sha256::digest(&data[..5]).into())
+            .unwrap();
+        assert!(matches!(
+            a.receive(&resume).unwrap(),
+            Event::FileResume { offset: 5, .. }
+        ));
+        let rest = a.send_file_chunk(id, 5, &data[5..]).unwrap();
+        assert!(matches!(
+            b.receive(&rest).unwrap(),
+            Event::FileChunk { offset: 5, .. }
+        ));
+        let complete = a.complete_file(id).unwrap();
+        b.receive(&complete).unwrap();
+        let receipt = b.file_stored(id).unwrap();
+        a.receive(&receipt).unwrap();
+        assert!(
+            a.offer_file_with_id(id, "resume.bin", data.len() as u64, digest)
+                .is_err()
+        );
+        let (mut a, mut b) = ready_pair();
+        let offer = a
+            .offer_file_with_id(id, "resume.bin", data.len() as u64, digest)
+            .unwrap();
+        b.receive(&offer).unwrap();
+        assert!(
+            b.receive(&old).is_err(),
+            "old ciphertext cannot resume cipher state"
+        );
+    }
+    #[test]
+    fn resume_controls_reject_replays_malformed_offsets_and_cancellation_races() {
+        for bad_offset in [0, 11, u64::MAX] {
+            let (mut a, mut b) = ready_pair();
+            let (id, offer) = a.offer_file("r.bin", 10, [0; 32]).unwrap();
+            b.receive(&offer).unwrap();
+            let mut plain = vec![VERSION, 13];
+            plain.extend(id);
+            plain.extend(bad_offset.to_be_bytes());
+            plain.extend([0; 32]);
+            let frame = b.encrypt(&plain).unwrap();
+            assert!(a.receive(&frame).is_err());
+            assert!(a.noise.is_none());
+        }
+        let (mut a, mut b) = ready_pair();
+        let (id, offer) = a.offer_file("r.bin", 10, [0; 32]).unwrap();
+        b.receive(&offer).unwrap();
+        let resume = b.resume_file(id, 4, [0; 32]).unwrap();
+        let cancel = a.cancel_file(id).unwrap();
+        assert!(matches!(
+            a.receive(&resume).unwrap(),
+            Event::FileDiscarded { .. }
+        ));
+        b.receive(&cancel).unwrap();
+        let ack = b.acknowledge_file_cancel(id).unwrap();
+        a.receive(&ack).unwrap();
+        assert!(a.receive(&resume).is_err());
     }
 
     #[test]

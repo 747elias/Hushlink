@@ -26,7 +26,7 @@ pub const MAX_CONTACTS: usize = 500;
 pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 80 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 1_000;
-const PROFILE_SCHEMA_VERSION: u16 = 2;
+const PROFILE_SCHEMA_VERSION: u16 = 3;
 
 fn legacy_schema_version() -> u16 {
     1
@@ -44,6 +44,8 @@ pub struct Profile {
     pub messages: Vec<StoredMessage>,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub partials: Vec<PartialAttachment>,
     pub settings: Settings,
 }
 
@@ -61,6 +63,7 @@ impl Profile {
             contacts: Vec::new(),
             messages: Vec::new(),
             attachments: Vec::new(),
+            partials: Vec::new(),
             settings: Settings::default(),
         }
     }
@@ -73,6 +76,12 @@ pub struct Contact {
     pub display_name: String,
     pub identity_key: [u8; 32],
     pub bluetooth_address: String,
+    #[serde(default)]
+    pub alias: String,
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub unread: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -101,6 +110,18 @@ pub struct Attachment {
     pub sha256: [u8; 32],
     pub outgoing: bool,
     pub timestamp_ms: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
+pub struct PartialAttachment {
+    pub id: String,
+    pub contact_id: String,
+    pub name: String,
+    pub size: u64,
+    pub sha256: [u8; 32],
+    #[serde(with = "attachment_bytes")]
+    pub data: Vec<u8>,
 }
 
 mod attachment_bytes {
@@ -151,6 +172,8 @@ pub struct Settings {
     /// Minutes until inactivity locking, in the inclusive range 1..=120.
     pub inactivity_minutes: u32,
     #[serde(default = "enabled_by_default")]
+    pub notifications: bool,
+    #[serde(default = "enabled_by_default")]
     pub start_with_windows: bool,
     #[serde(default = "enabled_by_default")]
     pub minimize_to_tray: bool,
@@ -166,6 +189,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             inactivity_minutes: 5,
+            notifications: true,
             start_with_windows: true,
             minimize_to_tray: true,
             automatic_updates: true,
@@ -525,7 +549,7 @@ fn validate_profile(profile: &Profile) -> Result<()> {
         || !valid_name(&profile.display_name)
         || profile.contacts.len() > MAX_CONTACTS
         || profile.messages.len() > MAX_MESSAGES
-        || profile.attachments.len() > MAX_ATTACHMENTS
+        || profile.attachments.len() + profile.partials.len() > MAX_ATTACHMENTS
         || !(1..=120).contains(&profile.settings.inactivity_minutes)
     {
         return Err(VaultError::InvalidProfile);
@@ -534,6 +558,8 @@ fn validate_profile(profile: &Profile) -> Result<()> {
         if contact.id.len() != 64
             || contact.id != hex::encode(contact.identity_key)
             || !valid_name(&contact.display_name)
+            || (!contact.alias.is_empty() && !valid_name(&contact.alias))
+            || contact.unread > MAX_MESSAGES as u32
             || contact.bluetooth_address.len() > 128
             || profile.contacts[..index].iter().any(|c| c.id == contact.id)
         {
@@ -590,6 +616,33 @@ fn validate_profile(profile: &Profile) -> Result<()> {
                 })
                 .count()
                 != 1
+        {
+            return Err(VaultError::InvalidProfile);
+        }
+    }
+    for (index, partial) in profile.partials.iter().enumerate() {
+        total_bytes = total_bytes
+            .checked_add(partial.data.len())
+            .ok_or(VaultError::Limit)?;
+        if total_bytes > MAX_TOTAL_ATTACHMENT_BYTES {
+            return Err(VaultError::Limit);
+        }
+        if partial.size > MAX_ATTACHMENT_BYTES as u64
+            || partial.data.len() as u64 > partial.size
+            || partial.id.len() != 32
+            || hex::decode(&partial.id).is_err()
+            || !valid_attachment_name(&partial.name)
+            || profile.attachments.iter().any(|a| a.id == partial.id)
+            || profile.partials[..index].iter().any(|a| a.id == partial.id)
+            || !profile.messages.iter().any(|m| {
+                m.id == partial.id
+                    && m.contact_id == partial.contact_id
+                    && !m.outgoing
+                    && m.attachment_id.is_none()
+                    && m.text == partial.name
+                    && matches!(m.status, MessageStatus::Pending | MessageStatus::Failed)
+            })
+            || !profile.contacts.iter().any(|c| c.id == partial.contact_id)
         {
             return Err(VaultError::InvalidProfile);
         }
@@ -876,6 +929,9 @@ mod tests {
             display_name: "Testkontakt Örn".to_owned(),
             identity_key: [0x73; 32],
             bluetooth_address: "AA:BB:CC:DD:EE:FF".to_owned(),
+            alias: String::new(),
+            favorite: false,
+            unread: 0,
         };
         profile.messages.push(StoredMessage {
             id: "synthetic-message-1".to_owned(),

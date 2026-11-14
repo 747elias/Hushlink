@@ -39,6 +39,28 @@ const FRAME_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_NETWORK_FRAME: usize = protocol::MAX_FRAME;
 
 pub enum Command {
+    RefreshBluetooth,
+    CancelBluetooth,
+    EditContact {
+        id: String,
+        alias: String,
+        favorite: bool,
+    },
+    ForgetContact {
+        id: String,
+    },
+    MarkRead {
+        id: String,
+    },
+    SetNotifications {
+        enabled: bool,
+    },
+    RetryFile {
+        id: String,
+    },
+    DiscardPartial {
+        id: String,
+    },
     Create {
         name: String,
         password: Zeroizing<String>,
@@ -104,6 +126,14 @@ impl Drop for Command {
     fn drop(&mut self) {
         match self {
             Self::Create { name, .. } => name.zeroize(),
+            Self::EditContact { id, alias, .. } => {
+                id.zeroize();
+                alias.zeroize();
+            }
+            Self::ForgetContact { id }
+            | Self::MarkRead { id }
+            | Self::RetryFile { id }
+            | Self::DiscardPartial { id } => id.zeroize(),
             Self::Connect { address } => address.zeroize(),
             Self::DeleteHistory { contact_id } => contact_id.zeroize(),
             Self::RespondFile { id, .. } | Self::CancelFile { id } => id.zeroize(),
@@ -120,12 +150,18 @@ pub struct DeviceView {
 }
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct ContactView {
+    pub alias: String,
+    pub advertised_name: String,
+    pub favorite: bool,
+    pub unread: u32,
+    pub identity: String,
     pub id: String,
     pub name: String,
     pub address: String,
 }
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct MessageView {
+    pub can_resume: bool,
     pub id: String,
     pub contact_id: String,
     pub text: String,
@@ -165,8 +201,21 @@ pub struct FileTransferView {
     #[zeroize(skip)]
     pub state: FileTransferState,
 }
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct PartialView {
+    pub id: String,
+    pub contact_id: String,
+    pub name: String,
+    pub size: u64,
+    pub saved: u64,
+}
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub partials: Vec<PartialView>,
+    pub notifications: bool,
+    pub bluetooth_checked: bool,
+    pub bluetooth_available: bool,
+    pub connecting: bool,
     pub vault_path: String,
     pub profile_exists: bool,
     pub unlocked: bool,
@@ -212,6 +261,7 @@ struct Mailbox {
 
 #[derive(Default)]
 struct CancellationHub {
+    notices: Arc<crate::notifications::NotificationSignal>,
     generation: AtomicU64,
     sensitive: AtomicBool,
     last_activity: Mutex<Option<Instant>>,
@@ -236,6 +286,7 @@ impl CancellationHub {
         })
     }
     fn invalidate(&self) -> u64 {
+        self.notices.set_enabled(false);
         self.sensitive.store(false, Ordering::Release);
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.cancel_all();
@@ -341,6 +392,9 @@ impl Runtime {
         let project = directories::ProjectDirs::from("org", "Hushlink", "Hushlink")
             .ok_or_else(|| anyhow::anyhow!("Der lokale App-Datenordner ist nicht verfügbar."))?;
         Ok(project.data_local_dir().join("profile.vault"))
+    }
+    pub fn notifications(&self) -> Arc<crate::notifications::NotificationSignal> {
+        self.hub.notices.clone()
     }
     pub fn record_activity(&self) {
         self.hub.touch();
@@ -496,6 +550,8 @@ enum PeerCommand {
     Ack(protocol::MessageId),
     OfferFile(PreparedFile),
     AcceptFile(protocol::MessageId),
+    ResumeAccept(protocol::MessageId, u64, [u8; 32]),
+    ResumeOffer(protocol::MessageId, PreparedFile),
     CancelFile(protocol::MessageId),
     FileStored(protocol::MessageId),
     Close,
@@ -593,6 +649,7 @@ struct Actor {
     discovery_flag: Option<Arc<AtomicBool>>,
     next_peer_id: u64,
     last_snapshot: Instant,
+    file_attempts: std::collections::HashSet<protocol::MessageId>,
 }
 impl Actor {
     fn new(
@@ -656,6 +713,7 @@ impl Actor {
             discovery_flag: None,
             next_peer_id: 0,
             last_snapshot: Instant::now(),
+            file_attempts: Default::default(),
         }
     }
     fn current(&self) -> bool {
@@ -685,6 +743,7 @@ impl Actor {
         }
     }
     fn snapshot(&mut self) {
+        self.view.connecting = self.connect_flag.is_some();
         self.last_snapshot = Instant::now();
         self.emit(Event::State(self.view.clone()));
     }
@@ -700,6 +759,26 @@ impl Actor {
         self.view.unlocked = true;
         self.view.profile_name.clone_from(&profile.display_name);
         self.view.inactivity_minutes = profile.settings.inactivity_minutes;
+        self.view.notifications = profile.settings.notifications;
+        self.hub.notices.set_enabled(
+            self.current()
+                && self.hub.sensitive.load(Ordering::Acquire)
+                && profile.settings.notifications,
+        );
+        self.hub
+            .notices
+            .set_unread(profile.contacts.iter().map(|c| c.unread).sum::<u32>());
+        self.view.partials = profile
+            .partials
+            .iter()
+            .map(|f| PartialView {
+                id: f.id.clone(),
+                contact_id: f.contact_id.clone(),
+                name: f.name.clone(),
+                size: f.size,
+                saved: f.data.len() as u64,
+            })
+            .collect();
         self.view.start_with_windows = self.desktop_preferences.start_with_windows;
         self.view.minimize_to_tray = self.desktop_preferences.minimize_to_tray;
         self.view.automatic_updates = self.desktop_preferences.automatic_updates;
@@ -708,14 +787,31 @@ impl Actor {
             .iter()
             .map(|c| ContactView {
                 id: c.id.clone(),
-                name: c.display_name.clone(),
+                name: if c.alias.is_empty() {
+                    c.display_name.clone()
+                } else {
+                    c.alias.clone()
+                },
+                alias: c.alias.clone(),
+                advertised_name: c.display_name.clone(),
+                favorite: c.favorite,
+                unread: c.unread,
+                identity: hex::encode_upper(c.identity_key),
                 address: c.bluetooth_address.clone(),
             })
             .collect();
+        self.view.contacts.sort_by(|a, b| {
+            b.favorite
+                .cmp(&a.favorite)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
         self.view.messages = profile
             .messages
             .iter()
             .map(|m| MessageView {
+                can_resume: m.outgoing
+                    && m.attachment_id.is_some()
+                    && m.status == vault::MessageStatus::Failed,
                 id: m.id.clone(),
                 contact_id: m.contact_id.clone(),
                 text: m.text.clone(),
@@ -762,6 +858,8 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.checkpoint_incoming();
+        self.hub.notices.set_enabled(false);
         self.hub.sensitive.store(false, Ordering::Release);
         self.peer = None;
         self.incoming_file = None;
@@ -1005,6 +1103,9 @@ impl Actor {
         }
         self.save();
         self.view.status = "Bereit – Bluetooth-Verbindung bewusst starten".into();
+        self.check_bluetooth();
+    }
+    fn check_bluetooth(&self) {
         let tx = self.background_tx.clone();
         let generation = self.generation;
         thread::spawn(move || {
@@ -1017,6 +1118,94 @@ impl Actor {
     }
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::RefreshBluetooth => {
+                self.view.bluetooth_checked = false;
+                self.check_bluetooth();
+            }
+            Command::CancelBluetooth => {
+                self.disconnect("Verbindungsvorgang abgebrochen");
+                if let Some(flag) = self.discovery_flag.take() {
+                    flag.store(true, Ordering::Release);
+                }
+                if let Some(flag) = self.listener_flag.take() {
+                    flag.store(true, Ordering::Release);
+                }
+                self.view.discovering = false;
+                self.view.listening = false;
+            }
+            Command::EditContact {
+                id,
+                alias,
+                favorite,
+            } => {
+                anyhow::ensure!(
+                    alias.is_empty()
+                        || (alias.trim().len() <= protocol::MAX_NAME
+                            && !alias.trim().is_empty()
+                            && !alias.chars().any(char::is_control)),
+                    "Bitte einen Namen mit höchstens 80 UTF-8-Bytes ohne Steuerzeichen verwenden."
+                );
+                let contact = self
+                    .vault
+                    .as_mut()
+                    .and_then(|v| v.profile_mut().contacts.iter_mut().find(|c| c.id == *id))
+                    .ok_or_else(|| anyhow::anyhow!("Kontakt nicht vorhanden."))?;
+                contact.alias = alias.trim().to_owned();
+                contact.favorite = *favorite;
+                anyhow::ensure!(self.save(), "Kontakt konnte nicht gespeichert werden.");
+            }
+            Command::ForgetContact { id } => {
+                anyhow::ensure!(
+                    self.peer.is_none() && self.connect_flag.is_none(),
+                    "Bitte vor dem Entfernen die Verbindung trennen."
+                );
+                if let Some(v) = &mut self.vault {
+                    let p = v.profile_mut();
+                    p.contacts.retain(|c| c.id != *id);
+                    p.messages.retain(|m| m.contact_id != *id);
+                    p.attachments.retain(|f| f.contact_id != *id);
+                    p.partials.retain(|f| f.contact_id != *id);
+                }
+                anyhow::ensure!(self.save(), "Kontakt konnte nicht entfernt werden.");
+            }
+            Command::MarkRead { id } => {
+                if let Some(c) = self
+                    .vault
+                    .as_mut()
+                    .and_then(|v| v.profile_mut().contacts.iter_mut().find(|c| c.id == *id))
+                    && c.unread > 0
+                {
+                    c.unread = 0;
+                    anyhow::ensure!(self.save(), "Lesestatus konnte nicht gespeichert werden.");
+                }
+            }
+            Command::SetNotifications { enabled } => {
+                if let Some(v) = &mut self.vault {
+                    v.profile_mut().settings.notifications = *enabled;
+                }
+                anyhow::ensure!(
+                    self.save(),
+                    "Benachrichtigungseinstellung konnte nicht gespeichert werden."
+                );
+            }
+            Command::RetryFile { id } => self.retry_file(id)?,
+            Command::DiscardPartial { id } => {
+                anyhow::ensure!(
+                    self.incoming_file.is_none(),
+                    "Zuerst die laufende Übertragung beenden."
+                );
+                if let Some(v) = &mut self.vault {
+                    let p = v.profile_mut();
+                    if p.partials.iter().any(|f| f.id == *id) {
+                        p.partials.retain(|f| f.id != *id);
+                        p.messages.retain(|m| m.id != *id || m.outgoing);
+                    }
+                }
+                anyhow::ensure!(
+                    self.save(),
+                    "Fortsetzungspunkt konnte nicht gelöscht werden."
+                );
+            }
             Command::Discover => {
                 anyhow::ensure!(!self.view.discovering, "Die Gerätesuche läuft bereits.");
                 self.view.discovering = true;
@@ -1176,6 +1365,18 @@ impl Actor {
                         .profile_mut()
                         .attachments
                         .retain(|a| a.contact_id != *contact_id);
+                    vault
+                        .profile_mut()
+                        .partials
+                        .retain(|a| a.contact_id != *contact_id);
+                    if let Some(c) = vault
+                        .profile_mut()
+                        .contacts
+                        .iter_mut()
+                        .find(|c| c.id == *contact_id)
+                    {
+                        c.unread = 0;
+                    }
                 }
                 anyhow::ensure!(self.save(), "Der Verlauf konnte nicht gespeichert werden.");
                 self.view.status = "Lokaler Verlauf gelöscht".into();
@@ -1264,7 +1465,7 @@ impl Actor {
         );
         if accept {
             anyhow::ensure!(
-                self.file_capacity(incoming.size),
+                self.incoming_capacity(incoming),
                 "Der Tresor hat seine Dateigrenze erreicht. Bitte zuerst alte Verläufe löschen."
             );
             let text = incoming.name.to_string();
@@ -1275,26 +1476,60 @@ impl Actor {
                 .ok_or_else(|| anyhow::anyhow!("Keine aktive Verbindung."))?
                 .id
                 .clone();
+            let prefix = Zeroizing::new(self.resume_data(message_id));
             if let Some(vault) = &mut self.vault {
-                vault.profile_mut().messages.push(vault::StoredMessage {
-                    id: id.to_owned(),
-                    contact_id,
-                    text,
-                    timestamp_ms: timestamp_ms(),
-                    outgoing: false,
-                    status: vault::MessageStatus::Pending,
-                    attachment_id: None,
-                });
+                let profile = vault.profile_mut();
+                if !profile
+                    .messages
+                    .iter()
+                    .any(|m| m.id == id && m.contact_id == contact_id)
+                {
+                    profile.messages.push(vault::StoredMessage {
+                        id: id.to_owned(),
+                        contact_id: contact_id.clone(),
+                        text,
+                        timestamp_ms: timestamp_ms(),
+                        outgoing: false,
+                        status: vault::MessageStatus::Pending,
+                        attachment_id: None,
+                    });
+                }
+                if !profile.attachments.iter().any(|f| f.id == id)
+                    && !profile.partials.iter().any(|f| f.id == id)
+                {
+                    profile.partials.push(vault::PartialAttachment {
+                        id: id.to_owned(),
+                        contact_id,
+                        name: incoming.name.to_string(),
+                        size: incoming.size,
+                        sha256: incoming.sha256,
+                        data: Vec::new(),
+                    });
+                }
             }
             if !self.save() {
                 self.disconnect("Dateiannahme konnte nicht sicher gespeichert werden");
                 anyhow::bail!("Dateiannahme konnte nicht gespeichert werden.");
             }
-            self.peer_command(PeerCommand::AcceptFile(message_id))?;
+            if prefix.is_empty() {
+                self.peer_command(PeerCommand::AcceptFile(message_id))?;
+            } else {
+                self.peer_command(PeerCommand::ResumeAccept(
+                    message_id,
+                    prefix.len() as u64,
+                    Sha256::digest(&prefix).into(),
+                ))?;
+            }
             if let Some(incoming) = &mut self.incoming_file {
+                incoming.data = prefix;
                 incoming.accepted = true;
                 incoming.activity = Instant::now();
             }
+            let offset = self
+                .incoming_file
+                .as_ref()
+                .map_or(0, |f| f.data.len() as u64);
+            self.transfer_progress(message_id, offset);
             self.transfer_state(message_id, FileTransferState::Transferring);
         } else {
             self.peer_command(PeerCommand::CancelFile(message_id))?;
@@ -1328,6 +1563,142 @@ impl Actor {
         self.view.status = "Datei wird an den gewählten Ort entschlüsselt …".into();
         Ok(())
     }
+    fn incoming_capacity(&self, file: &IncomingFile) -> bool {
+        self.vault.as_ref().is_some_and(|v| {
+            let p = v.profile();
+            let id = hex::encode(file.id);
+            let prior = p
+                .partials
+                .iter()
+                .find(|f| f.id == id)
+                .map(|f| f.data.len() as u64)
+                .or_else(|| {
+                    p.attachments
+                        .iter()
+                        .find(|f| f.id == id)
+                        .map(|f| f.data.len() as u64)
+                });
+            let used = p
+                .attachments
+                .iter()
+                .map(|f| f.data.len() as u64)
+                .chain(p.partials.iter().map(|f| f.data.len() as u64))
+                .sum::<u64>();
+            used.saturating_sub(prior.unwrap_or(0))
+                .saturating_add(file.size)
+                <= vault::MAX_TOTAL_ATTACHMENT_BYTES as u64
+                && p.attachments.len() + p.partials.len() + usize::from(prior.is_none())
+                    <= vault::MAX_ATTACHMENTS
+                && p.messages.len() + usize::from(prior.is_none()) <= vault::MAX_MESSAGES
+        })
+    }
+    fn retry_file(&mut self, id: &str) -> anyhow::Result<()> {
+        let message_id = parse_message_id(id)?;
+        anyhow::ensure!(
+            !self.file_attempts.contains(&message_id),
+            "Zum Fortsetzen zuerst trennen und neu verbinden."
+        );
+        let peer =
+            self.view.peer.as_ref().filter(|p| p.ready).ok_or_else(|| {
+                anyhow::anyhow!("Zuerst mit dem bestätigten Kontakt neu verbinden.")
+            })?;
+        anyhow::ensure!(
+            !self.view.transfers.iter().any(|t| t.outgoing
+                && matches!(
+                    t.state,
+                    FileTransferState::Transferring | FileTransferState::AwaitingConsent
+                )),
+            "Eine Übertragung läuft bereits."
+        );
+        let file = self
+            .vault
+            .as_ref()
+            .and_then(|v| {
+                v.profile()
+                    .attachments
+                    .iter()
+                    .find(|a| a.id == id && a.contact_id == peer.id && a.outgoing)
+            })
+            .ok_or_else(|| anyhow::anyhow!("Datei ist nicht mehr im Tresor vorhanden."))?;
+        let prepared = PreparedFile {
+            name: Zeroizing::new(file.name.clone()),
+            data: Arc::new(Zeroizing::new(file.data.clone())),
+            sha256: file.sha256,
+        };
+        self.peer_command(PeerCommand::ResumeOffer(message_id, prepared))
+    }
+    fn resume_data(&self, id: protocol::MessageId) -> Vec<u8> {
+        let id = hex::encode(id);
+        self.vault.as_ref().map_or_else(Vec::new, |v| {
+            v.profile()
+                .partials
+                .iter()
+                .find(|f| f.id == id)
+                .map(|f| f.data.clone())
+                .or_else(|| {
+                    v.profile()
+                        .attachments
+                        .iter()
+                        .find(|f| f.id == id && !f.outgoing)
+                        .map(|f| f.data.clone())
+                })
+                .unwrap_or_default()
+        })
+    }
+    fn valid_incoming_offer(
+        &self,
+        id: protocol::MessageId,
+        name: &str,
+        size: u64,
+        sha256: [u8; 32],
+    ) -> bool {
+        let id = hex::encode(id);
+        let Some(peer) = &self.view.peer else {
+            return false;
+        };
+        let Some(v) = &self.vault else {
+            return false;
+        };
+        let p = v.profile();
+        if let Some(f) = p.partials.iter().find(|f| f.id == id) {
+            return f.contact_id == peer.id
+                && f.name == name
+                && f.size == size
+                && f.sha256 == sha256;
+        }
+        if let Some(f) = p.attachments.iter().find(|f| f.id == id) {
+            return !f.outgoing
+                && f.contact_id == peer.id
+                && f.name == name
+                && f.data.len() as u64 == size
+                && f.sha256 == sha256;
+        }
+        !p.messages
+            .iter()
+            .any(|m| m.id == id && m.contact_id == peer.id)
+    }
+    fn checkpoint_incoming(&mut self) -> bool {
+        let Some(f) = self.incoming_file.as_ref().filter(|f| f.accepted) else {
+            return true;
+        };
+        let Some(v) = &mut self.vault else {
+            return true;
+        };
+        let Some(partial) = v
+            .profile_mut()
+            .partials
+            .iter_mut()
+            .find(|p| p.id == hex::encode(f.id))
+        else {
+            return true;
+        };
+        if partial.data.as_slice() == f.data.as_slice() {
+            return true;
+        }
+        partial.data.zeroize();
+        partial.data = f.data.to_vec();
+        self.save()
+    }
     fn transfer_state(&mut self, id: protocol::MessageId, state: FileTransferState) {
         let id = hex::encode(id);
         if let Some(transfer) = self.view.transfers.iter_mut().find(|t| t.id == id) {
@@ -1345,6 +1716,16 @@ impl Actor {
         }
         if self.incoming_file.as_ref().is_some_and(|f| f.id == id) {
             self.incoming_file = None;
+        }
+        if let Some(v) = &mut self.vault
+            && let Some(f) = v
+                .profile_mut()
+                .partials
+                .iter_mut()
+                .find(|f| f.id == hex::encode(id))
+        {
+            f.data.zeroize();
+            f.data.clear();
         }
         self.transfer_state(id, FileTransferState::Cancelled);
         self.fail_file_message(id);
@@ -1475,6 +1856,7 @@ impl Actor {
             .map(|c| c.identity_key);
         let flag = self.hub.flag(self.generation);
         let cancel = stream.cancel_handle();
+        self.file_attempts.clear();
         self.next_peer_id += 1;
         let id = self.next_peer_id;
         let (commands, receiver) = bounded(COMMAND_CAPACITY);
@@ -1511,6 +1893,8 @@ impl Actor {
         Ok(())
     }
     fn disconnect(&mut self, status: &str) {
+        self.checkpoint_incoming();
+        self.file_attempts.clear();
         self.incoming_file = None;
         self.file_loading = None;
         for transfer in &mut self.view.transfers {
@@ -1589,6 +1973,8 @@ impl Actor {
                 Err(error) => self.error(error),
             },
             BackgroundEvent::Availability(result) => {
+                self.view.bluetooth_checked = true;
+                self.view.bluetooth_available = result.is_ok();
                 self.view.availability = match result {
                     Ok(availability) => format!("Bluetooth: {}", availability.radio_name),
                     Err(error) => error,
@@ -1743,6 +2129,9 @@ impl Actor {
                             display_name: view.name.clone(),
                             identity_key: key,
                             bluetooth_address: peer.device.address.clone(),
+                            alias: String::new(),
+                            favorite: false,
+                            unread: 0,
                         });
                     }
                 }
@@ -1825,6 +2214,14 @@ impl Actor {
                     return;
                 }
                 if let Some(vault) = &mut self.vault {
+                    if let Some(c) = vault
+                        .profile_mut()
+                        .contacts
+                        .iter_mut()
+                        .find(|c| c.id == peer.id)
+                    {
+                        c.unread = c.unread.saturating_add(1).min(vault::MAX_MESSAGES as u32);
+                    }
                     vault.profile_mut().messages.push(vault::StoredMessage {
                         id: hex::encode(id),
                         contact_id: peer.id.clone(),
@@ -1836,6 +2233,9 @@ impl Actor {
                     });
                 }
                 if self.save() {
+                    if self.current() {
+                        self.hub.notices.received();
+                    }
                     if let Some(peer) = &self.peer
                         && peer.commands.try_send(PeerCommand::Ack(id)).is_err()
                     {
@@ -1867,7 +2267,7 @@ impl Actor {
                     || self.incoming_file.is_some()
                     || size > protocol::MAX_FILE_SIZE
                     || !vault::valid_attachment_name(&name)
-                    || self.has_stored_message(id)
+                    || !self.valid_incoming_offer(id, &name, size, sha256)
                 {
                     self.disconnect("Unzulässiges oder doppeltes Dateiangebot");
                     return;
@@ -1883,6 +2283,7 @@ impl Actor {
                     activity: Instant::now(),
                 });
                 self.view.status = "Dateiangebot – Annahme ist erforderlich".into();
+                self.hub.notices.received();
             }
             PeerEvent::FileAccepted(id) => {
                 if !self.file_cancelled(id) {
@@ -1911,6 +2312,19 @@ impl Actor {
                 file.activity = Instant::now();
                 let transferred = file.data.len() as u64;
                 self.transfer_progress(id, transferred);
+                let saved = self
+                    .vault
+                    .as_ref()
+                    .and_then(|v| {
+                        v.profile()
+                            .partials
+                            .iter()
+                            .find(|p| p.id == hex::encode(id))
+                    })
+                    .map_or(0, |p| p.data.len() as u64);
+                if transferred.saturating_sub(saved) >= 1024 * 1024 && !self.checkpoint_incoming() {
+                    self.disconnect("Fortsetzungspunkt konnte nicht gespeichert werden");
+                }
             }
             PeerEvent::FileProgress { id, transferred } => self.transfer_progress(id, transferred),
             PeerEvent::FileComplete(id) => {
@@ -1981,16 +2395,30 @@ impl Actor {
         self.vault.as_ref().is_some_and(|vault| {
             let profile = vault.profile();
             let reservation = self.incoming_file.as_ref().filter(|file| file.accepted);
-            let reserved = reservation.map_or(0, |file| file.size);
+            let reserved = reservation.map_or(0, |file| {
+                file.size.saturating_sub(
+                    profile
+                        .partials
+                        .iter()
+                        .find(|p| p.id == hex::encode(file.id))
+                        .map_or(0, |p| p.data.len() as u64),
+                )
+            });
             profile.messages.len() < vault::MAX_MESSAGES
-                && profile.attachments.len() + usize::from(reservation.is_some())
-                    < vault::MAX_ATTACHMENTS
+                && profile.attachments.len() + profile.partials.len() < vault::MAX_ATTACHMENTS
                 && size <= protocol::MAX_FILE_SIZE
                 && profile
                     .attachments
                     .iter()
                     .map(|file| file.data.len() as u64)
                     .sum::<u64>()
+                    .saturating_add(
+                        profile
+                            .partials
+                            .iter()
+                            .map(|p| p.data.len() as u64)
+                            .sum::<u64>(),
+                    )
                     .saturating_add(reserved)
                     .saturating_add(size)
                     <= vault::MAX_TOTAL_ATTACHMENT_BYTES as u64
@@ -2025,6 +2453,39 @@ impl Actor {
         }
     }
     fn store_outgoing_file(&mut self, id: protocol::MessageId, file: &PreparedFile) -> bool {
+        let contact_id = self.view.peer.as_ref().map(|p| p.id.clone());
+        let existing = self.vault.as_ref().and_then(|v| {
+            v.profile()
+                .attachments
+                .iter()
+                .find(|f| f.id == hex::encode(id))
+        });
+        if let Some(existing) = existing {
+            if !self.current()
+                || !self.view.peer.as_ref().is_some_and(|p| p.ready)
+                || !existing.outgoing
+                || Some(&existing.contact_id) != contact_id.as_ref()
+                || existing.name != *file.name
+                || existing.sha256 != file.sha256
+                || existing.data.as_slice() != file.data.as_slice()
+            {
+                return false;
+            }
+            if let Some(v) = &mut self.vault
+                && let Some(m) =
+                    v.profile_mut().messages.iter_mut().find(|m| {
+                        m.attachment_id.as_deref() == Some(&hex::encode(id)) && m.outgoing
+                    })
+            {
+                m.status = vault::MessageStatus::Pending;
+            }
+            if !self.save() {
+                return false;
+            }
+            self.file_attempts.insert(id);
+            self.push_transfer(id, &file.name, file.data.len() as u64, true);
+            return true;
+        }
         if !self.current()
             || !self.view.peer.as_ref().is_some_and(|peer| peer.ready)
             || !self.file_capacity(file.data.len() as u64)
@@ -2063,6 +2524,7 @@ impl Actor {
         if !self.save() {
             return false;
         }
+        self.file_attempts.insert(id);
         self.push_transfer(id, &file.name, file.data.len() as u64, true);
         true
     }
@@ -2082,6 +2544,10 @@ impl Actor {
             return;
         }
         let message_id = hex::encode(id);
+        let newly_stored = !self
+            .vault
+            .as_ref()
+            .is_some_and(|v| v.profile().attachments.iter().any(|f| f.id == message_id));
         let Some(contact_id) = self.view.peer.as_ref().map(|peer| peer.id.clone()) else {
             return;
         };
@@ -2095,17 +2561,27 @@ impl Actor {
             };
             message.status = vault::MessageStatus::Received;
             message.attachment_id = Some(message_id.clone());
-            profile.attachments.push(vault::Attachment {
-                id: message_id,
-                contact_id,
-                name: file.name.to_string(),
-                data: std::mem::take(&mut *file.data),
-                sha256: file.sha256,
-                outgoing: false,
-                timestamp_ms: timestamp_ms(),
-            });
+            let already_stored = profile.attachments.iter().any(|f| f.id == message_id);
+            profile.partials.retain(|p| p.id != message_id);
+            if !already_stored {
+                if let Some(c) = profile.contacts.iter_mut().find(|c| c.id == contact_id) {
+                    c.unread = c.unread.saturating_add(1).min(vault::MAX_MESSAGES as u32);
+                }
+                profile.attachments.push(vault::Attachment {
+                    id: message_id,
+                    contact_id,
+                    name: file.name.to_string(),
+                    data: std::mem::take(&mut *file.data),
+                    sha256: file.sha256,
+                    outgoing: false,
+                    timestamp_ms: timestamp_ms(),
+                });
+            }
         }
         if self.save() && self.current() {
+            if newly_stored {
+                self.hub.notices.received();
+            }
             self.transfer_state(id, FileTransferState::Stored);
             if self.peer_command(PeerCommand::FileStored(id)).is_err() {
                 self.disconnect(
@@ -2134,6 +2610,18 @@ impl Actor {
             self.disconnect("Nachrichtenstatus konnte nicht gespeichert werden");
         }
     }
+}
+
+fn validated_resume_offset(data: &[u8], offset: u64, digest: [u8; 32]) -> anyhow::Result<usize> {
+    anyhow::ensure!(
+        offset > 0 && offset <= data.len() as u64,
+        "Unzulässiger Fortsetzungspunkt."
+    );
+    anyhow::ensure!(
+        <[u8; 32]>::from(Sha256::digest(&data[..offset as usize])) == digest,
+        "Der gespeicherte Dateiteil stimmt nicht überein. Fortsetzungspunkt auf dem Empfänger löschen und erneut verbinden."
+    );
+    Ok(offset as usize)
 }
 
 fn parse_message_id(id: &str) -> anyhow::Result<protocol::MessageId> {
@@ -2402,6 +2890,18 @@ fn peer_loop(
                             protocol::write_frame(&mut stream, &frame)?;
                             outgoing_file = Some(OutgoingFile { id: message_id, file, offset: 0, accepted: false, completed: false, activity: Instant::now() });
                         }
+                        PeerCommand::ResumeOffer(message_id, file) => {
+                            anyhow::ensure!(ready_announced && session.is_ready() && outgoing_file.is_none(), "Keine bestätigte freie Verbindung.");
+                            let frame = session.offer_file_with_id(message_id, &file.name, file.data.len() as u64, file.sha256)?;
+                            let (persisted, durable) = bounded(1);
+                            emit(PeerEvent::FileOffered { id: message_id, file: file.clone(), persisted })?;
+                            await_persistence(&durable, &cancelled)?;
+                            protocol::write_frame(&mut stream, &frame)?;
+                            outgoing_file = Some(OutgoingFile { id: message_id, file, offset: 0, accepted: false, completed: false, activity: Instant::now() });
+                        }
+                        PeerCommand::ResumeAccept(message_id, offset, digest) => {
+                            if incoming_file_id == Some(message_id) { protocol::write_frame(&mut stream, &session.resume_file(message_id, offset, digest)?)?; }
+                        }
                         PeerCommand::AcceptFile(message_id) => {
                             if incoming_file_id == Some(message_id) {
                                 protocol::write_frame(&mut stream, &session.accept_file(message_id)?)?;
@@ -2443,6 +2943,12 @@ fn peer_loop(
                         protocol::Event::FileOffer { id, name, size, sha256 } => {
                             incoming_file_id = Some(id);
                             emit(PeerEvent::FileOffer { id, name, size, sha256 })?;
+                        }
+                        protocol::Event::FileResume { id, offset, prefix_sha256 } => {
+                            let file = outgoing_file.as_mut().ok_or_else(|| anyhow::anyhow!("Fortsetzen ohne Dateiangebot."))?;
+                            anyhow::ensure!(file.id == id, "Fortsetzung gehört nicht zur angebotenen Datei.");
+                            file.offset = validated_resume_offset(&file.file.data, offset, prefix_sha256)?; file.accepted = true; file.activity = Instant::now();
+                            emit(PeerEvent::FileAccepted(id))?; emit(PeerEvent::FileProgress { id, transferred: offset })?;
                         }
                         protocol::Event::FileAccept { id } => {
                             let file = outgoing_file.as_mut().ok_or_else(|| anyhow::anyhow!("Dateiannahme ohne Angebot."))?;
@@ -2797,6 +3303,9 @@ mod tests {
                 display_name: "Künstlicher Testkontakt".into(),
                 identity_key: key,
                 bluetooth_address: "01:23:45:67:89:AB".into(),
+                alias: String::new(),
+                favorite: false,
+                unread: 0,
             });
         }
         anyhow::ensure!(actor.save(), "synthetic profile could not be saved");
@@ -2819,6 +3328,196 @@ mod tests {
             _lease: None,
         });
         Ok(receiver)
+    }
+
+    #[test]
+    fn resume_prefix_validation_rejects_changed_and_out_of_bounds_data() {
+        let data = b"SYNTHETIC_RESUME_PREFIX_1345279";
+        assert_eq!(
+            validated_resume_offset(data, 8, Sha256::digest(&data[..8]).into()).ok(),
+            Some(8)
+        );
+        assert!(validated_resume_offset(data, 8, [0; 32]).is_err());
+        assert!(validated_resume_offset(data, 0, Sha256::digest([]).into()).is_err());
+        assert!(validated_resume_offset(data, u64::MAX, [0; 32]).is_err());
+    }
+    #[test]
+    fn interrupted_files_resume_after_lock_without_duplicate_history_or_receipts()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        let data = b"SYNTHETIC_RESUME_CONTENT_391475821_Gruesse";
+        let digest = Sha256::digest(data).into();
+        let id = [93; 16];
+        let key = hex::encode(id);
+        let offer = || PeerEvent::FileOffer {
+            id,
+            name: "Fortsetzen.txt".into(),
+            size: data.len() as u64,
+            sha256: digest,
+        };
+        actor.peer_event(offer());
+        actor.command(&mut Command::RespondFile {
+            id: key.clone(),
+            accept: true,
+        })?;
+        assert!(matches!(commands.try_recv(), Ok(PeerCommand::AcceptFile(got)) if got==id));
+        actor.peer_event(PeerEvent::FileChunk {
+            id,
+            offset: 0,
+            data: Zeroizing::new(data[..9].to_vec()),
+        });
+        // Lock keeps a ciphertext checkpoint, but drops every active session and UI buffer.
+        actor.hub.invalidate();
+        actor.generation = actor.hub.generation.load(Ordering::Acquire);
+        actor.clear();
+        assert!(!actor.view.unlocked && actor.incoming_file.is_none());
+        assert_eq!(actor.hub.notices.take(), 0);
+        let encrypted = std::fs::read(&actor.path)?;
+        assert!(!encrypted.windows(9).any(|w| w == &data[..9]));
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert_eq!(actor.view.partials[0].saved, 9);
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        assert!(!actor.valid_incoming_offer(id, "Fortsetzen.txt", data.len() as u64, [0; 32]));
+        actor.peer_event(offer());
+        assert!(
+            commands.try_recv().is_err(),
+            "reconnection cannot bypass new consent"
+        );
+        actor.command(&mut Command::RespondFile {
+            id: key.clone(),
+            accept: true,
+        })?;
+        assert!(
+            matches!(commands.try_recv(), Ok(PeerCommand::ResumeAccept(got,9,hash)) if got==id && hash == <[u8;32]>::from(Sha256::digest(&data[..9])))
+        );
+        actor.peer_event(PeerEvent::FileChunk {
+            id,
+            offset: 9,
+            data: Zeroizing::new(data[9..].to_vec()),
+        });
+        actor.peer_event(PeerEvent::FileComplete(id));
+        assert!(matches!(commands.try_recv(), Ok(PeerCommand::FileStored(got)) if got==id));
+        assert_eq!(actor.view.messages.len(), 1);
+        assert!(actor.view.partials.is_empty());
+        assert_eq!(actor.view.contacts[0].unread, 1);
+        assert_eq!(
+            actor
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no vault"))?
+                .profile()
+                .attachments[0]
+                .data,
+            data
+        );
+        // Lost storage receipt: a new offer revalidates the complete prefix and ACKs
+        // the existing file instead of inserting another message/attachment.
+        actor.disconnect("synthetic lost receipt");
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        actor.peer_event(offer());
+        actor.command(&mut Command::RespondFile {
+            id: key,
+            accept: true,
+        })?;
+        assert!(
+            matches!(commands.try_recv(),Ok(PeerCommand::ResumeAccept(_,offset,_)) if offset==data.len() as u64)
+        );
+        actor.peer_event(PeerEvent::FileComplete(id));
+        assert!(matches!(
+            commands.try_recv(),
+            Ok(PeerCommand::FileStored(_))
+        ));
+        assert_eq!(actor.view.messages.len(), 1);
+        assert_eq!(
+            actor
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no vault"))?
+                .profile()
+                .attachments
+                .len(),
+            1
+        );
+        Ok(())
+    }
+    #[test]
+    fn contacts_notifications_and_cancellation_are_durable_and_identity_bound() -> anyhow::Result<()>
+    {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        let contact = hex::encode([13; 32]);
+        actor.command(&mut Command::EditContact {
+            id: contact.clone(),
+            alias: "SYNTHETIC_PRIVATE_ALIAS_82491".into(),
+            favorite: true,
+        })?;
+        assert!(actor.view.contacts[0].favorite);
+        assert_eq!(actor.view.contacts[0].name, "SYNTHETIC_PRIVATE_ALIAS_82491");
+        actor.peer_event(PeerEvent::Chat {
+            id: [94; 16],
+            text: Zeroizing::new("SYNTHETIC_PRIVATE_NOTICE_5319".into()),
+        });
+        assert!(matches!(commands.try_recv(), Ok(PeerCommand::Ack(_))));
+        assert_eq!(actor.view.contacts[0].unread, 1);
+        assert_eq!(actor.hub.notices.take(), 1);
+        actor.command(&mut Command::MarkRead {
+            id: contact.clone(),
+        })?;
+        assert_eq!(actor.view.contacts[0].unread, 0);
+        actor.command(&mut Command::SetNotifications { enabled: false })?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [95; 16],
+            text: Zeroizing::new("SYNTHETIC_SILENT_NOTICE".into()),
+        });
+        assert_eq!(actor.hub.notices.take(), 0);
+        let id = [96; 16];
+        let data = b"SYNTHETIC_CANCEL_BYTES";
+        actor.peer_event(PeerEvent::FileOffer {
+            id,
+            name: "cancel.bin".into(),
+            size: data.len() as u64,
+            sha256: Sha256::digest(data).into(),
+        });
+        actor.command(&mut Command::RespondFile {
+            id: hex::encode(id),
+            accept: true,
+        })?;
+        actor.peer_event(PeerEvent::FileChunk {
+            id,
+            offset: 0,
+            data: Zeroizing::new(data[..6].to_vec()),
+        });
+        actor.command(&mut Command::CancelFile {
+            id: hex::encode(id),
+        })?;
+        assert_eq!(actor.view.partials[0].saved, 0);
+        actor.disconnect("synthetic");
+        actor.clear();
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert!(!actor.view.notifications && actor.view.contacts[0].favorite);
+        assert_eq!(actor.view.contacts[0].name, "SYNTHETIC_PRIVATE_ALIAS_82491");
+        let encrypted = std::fs::read(&actor.path)?;
+        for plain in [
+            b"SYNTHETIC_PRIVATE_ALIAS_82491".as_slice(),
+            b"SYNTHETIC_PRIVATE_NOTICE_5319",
+            data,
+        ] {
+            assert!(!encrypted.windows(plain.len()).any(|w| w == plain));
+        }
+        actor.command(&mut Command::ForgetContact { id: contact })?;
+        assert!(
+            actor.view.contacts.is_empty()
+                && actor.view.messages.is_empty()
+                && actor.view.partials.is_empty()
+        );
+        Ok(())
     }
 
     #[test]

@@ -40,6 +40,12 @@ impl DesktopIntegration {
         None
     }
 
+    pub fn set_notification_signal(
+        &self,
+        _signal: std::sync::Arc<crate::notifications::NotificationSignal>,
+    ) {
+    }
+
     pub fn set_waker(&self, _wake: impl Fn() + Send + Sync + 'static) {}
 
     pub fn is_available(&self) -> bool {
