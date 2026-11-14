@@ -1,15 +1,15 @@
-# Hushlink wire protocol v2
+# Hushlink wire protocol v3
 
 This document describes `src/protocol.rs`; it is not an external security audit.
 Application traffic travels only through Windows Bluetooth Classic RFCOMM. The
-in-memory byte transport exists only in tests. Wire v2 requires Hushlink v0.2 or
-later on **both** devices. It deliberately rejects v0.1's wire v1 prefix rather
+in-memory byte transport exists only in tests. Wire v3 requires Hushlink v0.3 or
+later on **both** devices. It deliberately rejects older wire prefixes rather
 than downgrading or silently omitting file-transfer consent. Vault migration is
 independent of the wire version; existing pinned contact identities are retained.
 
 ## Framing and handshake
 
-Each peer first writes the five bytes `48 55 53 48 02` (`HUSH`, version 2), then
+Each peer first writes the five bytes `48 55 53 48 03` (`HUSH`, version 3), then
 reads the same prefix. Every subsequent handshake or transport message is a
 4-byte unsigned big-endian length followed by exactly that many bytes. Valid
 lengths are 1–32768 bytes, rejected before allocation; the underlying transport
@@ -20,15 +20,15 @@ messages.
 
 The pinned snow implementation uses
 `Noise_XX_25519_ChaChaPoly_SHA256`, prologue
-`Hushlink/v2/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
+`Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
 identity lives in the encrypted profile; ephemeral handshake keys are newly
 generated on every connection. snow's `into_transport_mode` produces distinct
 send/receive cipher states. The application never reads, resets, serializes or
 clones their keys or counters. Disconnect, lock, protocol error and
 reconnection discard the entire session. A reconnect always uses a fresh
-handshake. There is no session or file-transfer resumption or transport fallback.
+handshake. There is no cryptographic session resumption or transport fallback. Application file bytes may resume inside a completely fresh authenticated session as described below.
 
-The authenticated transport plaintext begins with version byte `02`, one type
+The authenticated transport plaintext begins with version byte `03`, one type
 byte, then the following payload. Integers below are unsigned big-endian.
 
 | Type | Payload | State and validation |
@@ -45,6 +45,7 @@ byte, then the following payload. Integers below are unsigned big-endian.
 | `0A` FileStored | Exactly 16 file ID bytes | Completed outgoing file; receiver verified digest and durably saved encrypted bytes; exactly once |
 | `0B` FileCancel | Exactly 16 file ID bytes | Either party stops an active file; also handles a cancellation crossing completion; exactly once |
 | `0C` FileCancelAck | Exactly 16 file ID bytes | Acknowledges one local cancellation after the peer stopped its transfer; exactly once |
+| `0D` FileResume | 16-byte ID, 8-byte offset, 32-byte SHA-256 of stored prefix | Explicit renewed recipient consent; outgoing offer; 0 < offset ≤ offered size; exactly once |
 
 Text limits count UTF-8 bytes, not characters. Newlines, umlauts and emoji are
 supported in chat. IDs come from the OS CSPRNG. Chat and file offers share an ID
@@ -119,7 +120,7 @@ already in flight, without ever releasing data after the user cancelled.
 Runtime commands resulting from earlier UI/storage work may arrive after a
 transfer was cancelled. They must be discarded by matching active transfer ID
 and session generation, rather than reviving the transfer. Reconnection always
-starts a new offer with new consent; no partial file is resumed after lock.
+starts a new offer with new consent; encrypted application checkpoints may be revalidated after lock, never the old cipher state.
 
 ## Human verification and contact binding
 
@@ -129,8 +130,8 @@ before their first chat or file transfer. SHA-256 is computed over the exact
 concatenation:
 
 ```
-"Hushlink identity fingerprint\0v2\0"
-|| "Hushlink/v2/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
+"Hushlink identity fingerprint\0v3\0"
+|| "Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
 || min(local_static_public, remote_static_public)
 || max(local_static_public, remote_static_public)
 ```
@@ -197,3 +198,30 @@ user-selected destination; users must trust their origin before opening them.
 
 These references were accessed during the original implementation on 2026-11-13.
 Wire v2 retains those cryptographic primitives and adds authenticated file states.
+
+## Encrypted file checkpoints (v3)
+
+The sender retains its immutable complete source snapshot in the encrypted vault.
+A failed outgoing attachment can be explicitly offered again with the same
+application ID **in a new session**. Each session still spends every ID only once;
+no Noise key, counter or ciphertext is retained for resumption. Both identities
+must pass the ordinary fresh-session trust gate. A changed contact key cannot
+select the old identity's checkpoint.
+
+The recipient binds a checkpoint to the contact identity, transfer ID, basename,
+full expected size and full SHA-256. Any metadata mismatch rejects the offer.
+Renewed explicit consent is always required. With no saved bytes it sends normal
+FileAccept; otherwise FileResume includes the exact saved length and SHA-256 of
+that prefix. The sender verifies this digest against its immutable snapshot
+before sending bytes after that offset. Missing, malformed, oversized, repeated
+or state-invalid resume controls abort. Cancellation may drain an in-flight
+resume control using the existing authenticated cancellation acknowledgement.
+
+A checkpoint is encrypted after each additional 1 MiB and on graceful disconnect
+or lock. Abrupt process loss may require retransmitting the last uncheckpointed
+section. No partial attachment can be exported. Only exact full size, full digest
+verification and durable final encrypted storage permit FileStored. After a lost
+receipt, the recipient can revalidate an already complete file and acknowledge
+it again in the new session without duplicate history, unread counts or files.
+Explicit cancel/reject clears received checkpoint bytes; history deletion or
+contact removal deletes their checkpoint records as well.

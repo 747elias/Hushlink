@@ -58,6 +58,11 @@ impl Features {
         self.receiver = None;
     }
 }
+impl Drop for Features {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
 impl App {
     pub(super) fn open_contact(&mut self, id: &str) {
         if let Some(c) = self.view.contacts.iter().find(|c| c.id == id) {

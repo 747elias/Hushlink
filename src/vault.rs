@@ -1065,6 +1065,56 @@ mod tests {
     }
 
     #[test]
+    fn v02_profiles_migrate_with_files_and_default_private_notification_preferences() -> TestResult
+    {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("v02.vault");
+        let old = profile_with_attachment();
+        let key = Zeroizing::new([0x53; 32]);
+        let mut envelope = new_envelope(PASSWORD, &key, &old)?;
+        let mut value = serde_json::to_value(&old)?;
+        value["schema_version"] = serde_json::json!(2);
+        value.as_object_mut().ok_or("object")?.remove("partials");
+        value["settings"]
+            .as_object_mut()
+            .ok_or("settings")?
+            .remove("notifications");
+        for contact in value["contacts"].as_array_mut().ok_or("contacts")? {
+            let fields = contact.as_object_mut().ok_or("contact")?;
+            for name in ["alias", "favorite", "unread"] {
+                fields.remove(name);
+            }
+        }
+        let plain = Zeroizing::new(serde_json::to_vec(&value)?);
+        envelope.header[88..92].copy_from_slice(&((plain.len() + TAG_LEN) as u32).to_le_bytes());
+        fs::write(&path, encrypt_body(envelope.header, &key, &plain)?.encode())?;
+        let mut vault = Vault::open(&path, PASSWORD)?;
+        assert_eq!(vault.profile().schema_version, 2);
+        assert!(vault.profile().partials.is_empty());
+        assert!(
+            vault.profile().contacts[0].alias.is_empty()
+                && !vault.profile().contacts[0].favorite
+                && vault.profile().contacts[0].unread == 0
+        );
+        assert!(vault.profile().settings.notifications);
+        vault.profile_mut().contacts[0].alias = "SYNTHETIC_ALIAS_MIGRATION".into();
+        vault.profile_mut().settings.notifications = false;
+        vault.change_password(PASSWORD, OTHER_PASSWORD)?;
+        drop(vault);
+        let vault = Vault::open(&path, OTHER_PASSWORD)?;
+        assert_eq!(vault.profile().schema_version, 3);
+        assert_eq!(vault.profile().attachments[0].data, old.attachments[0].data);
+        assert_eq!(vault.profile().identity_private, old.identity_private);
+        assert_eq!(
+            vault.profile().contacts[0].alias,
+            "SYNTHETIC_ALIAS_MIGRATION"
+        );
+        assert!(!vault.profile().settings.notifications);
+        Ok(())
+    }
+
+    #[test]
     fn relocation_commits_only_durable_ciphertext_and_keeps_destination_locked() -> TestResult {
         let _serial = serial();
         let directory = tempfile::tempdir()?;

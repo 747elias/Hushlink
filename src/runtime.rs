@@ -286,9 +286,9 @@ impl CancellationHub {
         })
     }
     fn invalidate(&self) -> u64 {
-        self.notices.set_enabled(false);
         self.sensitive.store(false, Ordering::Release);
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.notices.invalidate(generation);
         self.cancel_all();
         generation
     }
@@ -760,14 +760,16 @@ impl Actor {
         self.view.profile_name.clone_from(&profile.display_name);
         self.view.inactivity_minutes = profile.settings.inactivity_minutes;
         self.view.notifications = profile.settings.notifications;
-        self.hub.notices.set_enabled(
+        self.hub.notices.configure(
+            self.generation,
             self.current()
                 && self.hub.sensitive.load(Ordering::Acquire)
                 && profile.settings.notifications,
         );
-        self.hub
-            .notices
-            .set_unread(profile.contacts.iter().map(|c| c.unread).sum::<u32>());
+        self.hub.notices.set_unread(
+            self.generation,
+            profile.contacts.iter().map(|c| c.unread).sum::<u32>(),
+        );
         self.view.partials = profile
             .partials
             .iter()
@@ -859,7 +861,7 @@ impl Actor {
     }
     fn clear(&mut self) {
         self.checkpoint_incoming();
-        self.hub.notices.set_enabled(false);
+        self.hub.notices.configure(self.generation, false);
         self.hub.sensitive.store(false, Ordering::Release);
         self.peer = None;
         self.incoming_file = None;
@@ -936,8 +938,8 @@ impl Actor {
             }
             select! {
                 recv(commands) -> item => {
-                    let Ok(mut envelope) = item else { self.hub.cancel_all(); break; };
-                    if matches!(envelope.command, Command::Shutdown) { self.hub.cancel_all(); break; }
+                    let Ok(mut envelope) = item else { self.hub.cancel_all(); self.clear(); break; };
+                    if matches!(envelope.command, Command::Shutdown) { self.hub.cancel_all(); self.clear(); break; }
                     if envelope.generation != self.generation { continue; }
                     if let Err(error) = self.command(&mut envelope.command) {
                         if self.vault.is_none() { self.hub.sensitive.store(false, Ordering::Release); }
@@ -2234,7 +2236,7 @@ impl Actor {
                 }
                 if self.save() {
                     if self.current() {
-                        self.hub.notices.received();
+                        self.hub.notices.received(self.generation);
                     }
                     if let Some(peer) = &self.peer
                         && peer.commands.try_send(PeerCommand::Ack(id)).is_err()
@@ -2283,7 +2285,7 @@ impl Actor {
                     activity: Instant::now(),
                 });
                 self.view.status = "Dateiangebot – Annahme ist erforderlich".into();
-                self.hub.notices.received();
+                self.hub.notices.received(self.generation);
             }
             PeerEvent::FileAccepted(id) => {
                 if !self.file_cancelled(id) {
@@ -2580,7 +2582,7 @@ impl Actor {
         }
         if self.save() && self.current() {
             if newly_stored {
-                self.hub.notices.received();
+                self.hub.notices.received(self.generation);
             }
             self.transfer_state(id, FileTransferState::Stored);
             if self.peer_command(PeerCommand::FileStored(id)).is_err() {
@@ -3328,6 +3330,55 @@ mod tests {
             _lease: None,
         });
         Ok(receiver)
+    }
+
+    #[test]
+    fn crash_recovery_uses_bounded_ciphertext_checkpoints_and_rejects_another_identity()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let _commands = attach_synthetic_peer(&mut actor, true)?;
+        let data = Zeroizing::new(vec![0x6d; 1024 * 1024 + 123]);
+        let id = [97; 16];
+        let digest = Sha256::digest(&data).into();
+        actor.peer_event(PeerEvent::FileOffer {
+            id,
+            name: "checkpoint.bin".into(),
+            size: data.len() as u64,
+            sha256: digest,
+        });
+        actor.command(&mut Command::RespondFile {
+            id: hex::encode(id),
+            accept: true,
+        })?;
+        for (index, chunk) in data.chunks(protocol::MAX_FILE_CHUNK).enumerate() {
+            actor.peer_event(PeerEvent::FileChunk {
+                id,
+                offset: (index * protocol::MAX_FILE_CHUNK) as u64,
+                data: Zeroizing::new(chunk.to_vec()),
+            });
+        }
+        assert_eq!(
+            actor
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no vault"))?
+                .profile()
+                .partials[0]
+                .data
+                .len(),
+            1024 * 1024
+        );
+        if let Some(peer) = &mut actor.view.peer {
+            peer.id = hex::encode([14; 32]);
+        }
+        assert!(!actor.valid_incoming_offer(id, "checkpoint.bin", data.len() as u64, digest));
+        let path = actor.path.clone();
+        drop(actor); // abrupt worker loss, without the graceful lock checkpoint
+        let vault = vault::Vault::open(path, "synthetic-password-123")?;
+        assert_eq!(vault.profile().partials[0].data.len(), 1024 * 1024);
+        assert!(vault.profile().attachments.is_empty());
+        Ok(())
     }
 
     #[test]

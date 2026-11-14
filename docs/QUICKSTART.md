@@ -1,6 +1,6 @@
 # Hushlink – Kurzstart für Windows 11 x64
 
-1. **Hushlink-v0.2.0-windows-x64-setup.exe** herunterladen und im eigenen Benutzerkonto installieren. Keine Administratorrechte nötig. Alternativ die separate EXE direkt starten oder die ZIP vollständig entpacken. Der Tresor liegt zunächst im lokalen Windows-App-Datenordner, nicht neben der EXE; in Einstellungen lässt sich sein Speicherort wählen.
+1. **Hushlink-v0.3.0-windows-x64-setup.exe** herunterladen und im eigenen Benutzerkonto installieren. Keine Administratorrechte nötig. Alternativ die separate EXE direkt starten oder die ZIP vollständig entpacken. Der Tresor liegt zunächst im lokalen Windows-App-Datenordner, nicht neben der EXE; in Einstellungen lässt sich sein Speicherort wählen.
 2. Falls Windows SmartScreen warnt: Diese erste Version ist nicht mit einem vertrauenswürdigen Herausgeberzertifikat signiert. Quelle und SHA-256-Prüfsumme vor dem Start prüfen. Keine Sicherheitsfunktion pauschal deaktivieren.
 3. Auf beiden PCs Bluetooth einschalten. Die Adapter müssen Bluetooth Classic/RFCOMM unterstützen; reine BLE-Adapter reichen nicht. Wenn nötig die PCs über die Windows-Bluetooth-Einstellungen koppeln.
 4. Beim Erststart Anzeigename und ein starkes, einzigartiges Passwort festlegen. Ein vergessenes Passwort kann nicht zurückgesetzt werden; ohne das Passwort ist der lokale Verlauf verloren.
@@ -16,9 +16,9 @@
 Prüfsummen aus derselben Version herunterladen. Im Download-Ordner:
 
 ```powershell
-Get-FileHash .\Hushlink-v0.2.0-windows-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\Hushlink-v0.2.0-windows-x64.exe -Algorithm SHA256
-Get-FileHash .\Hushlink-v0.2.0-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.3.0-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.3.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.3.0-windows-x64.zip -Algorithm SHA256
 ```
 
 Die Werte mit `SHA256SUMS.txt` vergleichen. Prüfsummen erkennen eine beschädigte oder abweichende Datei; sie ersetzen keine unabhängige Prüfung der Downloadquelle.
@@ -33,4 +33,12 @@ Die Werte mit `SHA256SUMS.txt` vergleichen. Prüfsummen erkennen eine beschädig
 
 Bei Problemen README und SECURITY im ZIP beziehungsweise im Repository lesen.
 
-Vor dem Update von v0.1 die geschlossene Tresordatei sichern. v0.2 migriert beim Speichern; danach nicht mit v0.1 öffnen. Beide PCs brauchen dasselbe neue Protokoll; bereits bestätigte Identitäten bleiben gespeichert. Deinstallation bewahrt Tresor und Einstellungen.
+Vor dem Update die geschlossene Tresordatei sichern. v0.3 migriert v0.1-/v0.2-Profile beim Speichern; danach die neue App verwenden. Beide PCs brauchen dasselbe neue Protokoll; bereits bestätigte Identitäten bleiben gespeichert. Deinstallation bewahrt Tresor und Einstellungen.
+
+## Neu in v0.3
+
+- Verbindungsassistent für Adapter, Pairing, Empfang/Suche und Sicherheitscode.
+- Dateien per Drag & Drop ablegen, Empfänger prüfen und jede Datei bewusst anbieten.
+- Nach Unterbruch neu verbinden und im ausgehenden Verlauf „Erneut anbieten / fortsetzen“ wählen; die andere Person bestätigt erneut. Bereits im Tresor gesicherte Teile werden geprüft und weiterverwendet.
+- Unter „Kontakt verwalten“ eigenen Namen, Favoriten und Geräteübersicht nutzen.
+- Private Benachrichtigungen enthalten keinen Inhalt. Zum Empfang im Hintergrund die entsperrte App minimieren; Schliessen ins Tray sperrt weiterhin und beendet Sitzungen.

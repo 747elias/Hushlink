@@ -488,7 +488,9 @@ fn update_notifications(window: HWND, state: &WindowState) {
             GetWindowThreadProcessId(foreground, &mut foreground_process);
         }
     }
-    signal.set_foreground(foreground_process == unsafe { GetCurrentProcessId() });
+    if state.use_shell {
+        signal.set_foreground(foreground_process == unsafe { GetCurrentProcessId() });
+    }
     let enabled = signal.enabled();
     if state.notification_enabled.replace(enabled) && !enabled && state.use_shell {
         let mut data = icon_data(window, state);
@@ -912,8 +914,40 @@ mod tests {
         integration.set_waker(move || {
             wake_counter.fetch_add(1, Ordering::Release);
         });
+        let notice = Arc::new(crate::notifications::NotificationSignal::default());
+        notice.configure(1, true);
+        notice.set_foreground(false);
+        notice.set_unread(1, 3);
+        notice.received(1);
+        integration.set_notification_signal(notice.clone());
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while notice.pending_for_test() != 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            notice.pending_for_test(),
+            0,
+            "native notification pump must run without egui frames"
+        );
+        // Clicking a generic notification restores the window via the same native queue.
         let window = shared.window.load(Ordering::Acquire) as HWND;
         ensure!(!window.is_null());
+        ensure!(
+            unsafe {
+                PostMessageW(
+                    window,
+                    CALLBACK,
+                    0,
+                    ((1u32 << 16) | NIN_BALLOONUSERCLICK) as isize,
+                )
+            } != 0
+        );
+        assert_eq!(
+            integration.events.recv_timeout(Duration::from_secs(3))?,
+            DesktopEvent::Show
+        );
+        notice.configure(1, false);
+        assert_eq!(notice.unread(), 0);
         // SAFETY: this test's worker owns the live HWND until shutdown below.
         ensure!(unsafe { PostMessageW(window, WM_COMMAND, LOCK, 0) } != 0);
         assert_eq!(

@@ -806,6 +806,17 @@ fn clear_ui_memory(ctx: &egui::Context) {
         wipe_events(&mut input.raw.events);
         input.events.clear();
         input.raw.events.clear();
+        for file in &mut input.raw.dropped_files {
+            file.name.zeroize();
+            file.mime.zeroize();
+            if let Some(bytes) = &mut file.bytes
+                && let Some(unique) = std::sync::Arc::get_mut(bytes)
+            {
+                unique.zeroize();
+            }
+        }
+        input.raw.dropped_files.clear();
+        input.raw.hovered_files.clear();
     });
     ctx.memory_mut(|memory| {
         let options = memory.options.clone();

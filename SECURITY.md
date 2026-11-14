@@ -1,6 +1,6 @@
 # Sicherheitsmodell
 
-Hushlink v0.2 ist eine Vorabversion ohne externe Sicherheitsprüfung. Das Repository ist öffentlich. Sicherheitsprobleme ausschließlich ohne Passwörter, Schlüssel, Tresore oder persönliche Chatdaten melden. Für sensible Details zuerst beim Repository-Inhaber einen vertraulichen Kontaktweg erfragen; keine Geheimnisse in öffentliche Issues schreiben.
+Hushlink v0.3 ist eine Vorabversion ohne externe Sicherheitsprüfung. Das Repository ist öffentlich. Sicherheitsprobleme ausschließlich ohne Passwörter, Schlüssel, Tresore oder persönliche Chatdaten melden. Für sensible Details zuerst beim Repository-Inhaber einen vertraulichen Kontaktweg erfragen; keine Geheimnisse in öffentliche Issues schreiben.
 
 ## Geschützte Daten und Vertrauensgrenzen
 
@@ -41,3 +41,11 @@ Automatische Tests prüfen Handshake, gegenseitige Vertrauensfreigabe, Identitä
 Ein interner Lauf mit cargo-audit 0.23.0 und RustSec-Datenbankstand vom 13. November 2026 meldete nach Aktualisierung der betroffenen anyhow-/rand-Versionen keine klassifizierten Schwachstellen und keine Unsoundness-Warnungen. Die transitive Schriftbibliothek `ttf-parser 0.25.1` ist als nicht mehr gepflegt gemeldet (RUSTSEC-2026-0192); es lag keine korrigierte Version im verwendeten egui-Abhängigkeitsbaum vor. Hushlink importiert keine Schriftdateien von Chatpartnern, sondern verwendet mitgelieferte und gegebenenfalls lokale Windows-Systemschriften. Die verbleibende Wartungswarnung ist kein externer Sicherheitsaudit. Neue Bibliotheks- und RustSec-Stände müssen bei Folgeversionen erneut geprüft werden.
 
 Die entwicklungsbegleitende [interne Codeprüfung](docs/SECURITY-REVIEW.md) und der konkrete [Prüfstand](docs/VALIDATION.md) sind dokumentiert.
+
+## Dateifortsetzung und Benachrichtigungen ab v0.3
+
+Fortsetzung bewahrt ausschließlich verschlüsselte Anwendungsdaten, keine Sitzungsschlüssel oder Nonces. Kontaktidentität, Transfer-ID, Name, Gesamtgröße und vollständiger Digest binden den Teilstand. Nach einem frischen Handshake und beidseitigem Vertrauen muss die empfangende Person erneut annehmen. Der Sender prüft den Digest des gespeicherten Präfixes vor dem Überspringen. Nur der vollständige, geprüfte und dauerhaft verschlüsselt gespeicherte Anhang erhält eine Empfangsbestätigung. Teilstände sind nicht exportierbar. Ein verlorener Receipt darf keine doppelten Dateien oder Nachrichten erzeugen. Ein Abruch zwischen letztem Checkpoint und Prozessverlust kann erneute Übertragung dieses Abschnitts erfordern.
+
+Kontakteigennamen, Favoriten, ungelesene Zähler und Teilstände liegen verschlüsselt im Tresor. Eigennamen ändern keine Identität. Drag & Drop bindet vorgemerkte Pfade an den ausgewählten bestätigten Kontakt; Sperren, Trennen und Empfängerwechsel verwerfen die Vormerkliste. Nichts wird allein durch Ablegen automatisch gesendet.
+
+Windows-Mitteilungen verwenden ausschließlich festen generischen Text. Weder Kontakt-/Dateinamen noch Vorschauinhalte werden an die Windows-Benachrichtigungsoberfläche übergeben. Hinweise und Zähler können trotzdem Aktivitätsmetadaten verraten; Windows steuert Sichtbarkeit, Ruhezeiten und seine eigene Aufbewahrung. Sperren deaktiviert die Signalquelle und löscht ausstehende Hinweise. Der native Tray-Thread verarbeitet Hinweise auch ohne egui-Repaints. Schliessen ins Tray bleibt eine Sperre mit Sitzungsende; Hintergrundempfang erfolgt bei entsperrter minimierter App. Keine Anonymitätsgarantie.

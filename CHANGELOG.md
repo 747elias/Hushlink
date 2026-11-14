@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 – Benachrichtigungen und Dateifortsetzung
+
+- Inhaltsfreie Windows-Benachrichtigungen und ungelesene Zähler, unabhängig von egui-Repaints.
+- Verschlüsselte Dateicheckpoints, erneutes Anbieten nach Neustart und Fortsetzung in frischer Sitzung nach erneuter Zustimmung; Präfixprüfung und Schutz vor doppelten Dateien nach verlorener Bestätigung.
+- Drag & Drop mit begrenzter Vormerkliste, Empfängerbindung und bewusster Freigabe.
+- Eigene Kontaktnamen, Favoriten, Geräteübersicht und bewusste lokale Entfernung samt Verlauf.
+- Verbindungsassistent mit echten Zuständen und unveränderter Identitätsprüfung.
+- Profilschema 3 mit Migration vorhandener Tresore; Protokoll 3 erfordert v0.3 auf beiden PCs.
+
+Prüfstatus und verbleibende Hardwaretests: [Release-Hinweise](docs/RELEASE-v0.3.0.md) und [Prüfstand](docs/VALIDATION.md).
+
 ## 0.2.0 – Dateien und Windows-Installation
 
 - Authentifizierter Bluetooth-Dateiversand bis 20 MiB mit ausdrücklicher Annahme, Fortschritt, Abbruch und bestätigter verschlüsselter Speicherung; bewusster Export statt automatischem Öffnen.
