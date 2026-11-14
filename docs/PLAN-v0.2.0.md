@@ -15,5 +15,6 @@ Alle privaten Profil-, Kontakt-, Nachrichten- und Anhangsdaten liegen in einer v
 
 - Erledigt und gepusht: Dateiprotokoll, Worker, verschlüsselte Anhänge, Pfadwahl/-verlagerung, Windows-Tray/Einzelinstanz/Autostart, öffentlicher Update-Client, Installer und UI-Verknüpfung.
 - Lokal geprüft: 77 Tests, Format, strenges Clippy, Lizenzabgleich, Actionlint/PowerShell-Syntax; Abhängigkeitsprüfung ohne klassifizierte Schwachstellen.
-- In Arbeit: nativer Windows-MSVC-/Installerlauf, anschließend genaue Release-Prüfschranke und Downloadverifikation für v0.2.0.
+- Erledigt: nativer Windows-MSVC-/Installerlauf 43604813268 einschließlich 79 Tests, Tray, Autostart, Update-Übergabe und Deinstallation.
+- Auslieferung: v0.2.0 wird ausschließlich nach erneut erfolgreichen exakten Tag-Prüfungen veröffentlicht und anschließend anhand tatsächlicher Downloads verifiziert.
 - Externe Hardwaregrenze bleibt: keine zwei physischen Windows-11-Bluetooth-Geräte in dieser Umgebung.

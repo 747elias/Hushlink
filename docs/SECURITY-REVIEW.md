@@ -6,7 +6,7 @@ Die Pfadverlagerung erhält vollständige verschlüsselte Kopien, bis der Startv
 
 Der Updater prüft feste HTTPS-Hosts, begrenzte Metadaten/Downloads, Semver, Dateigröße, Prüfsumme und PE-Format. Direkt vor dem Start erfolgt die Prüfung erneut unter einem gegen Austausch gesperrten Windows-Dateihandle. Er verwendet keine Geheimnisse und vertraut ausdrücklich GitHub/Publisher/TLS; keine unabhängige Signatur behauptet. Der Installer wartet begrenzt auf den startenden App-Prozess vor der AppMutex-Prüfung. UI-Exportdialoge tragen keine Anhangsnamen weiter über die Sperre; veraltete Dialogergebnisse werden nach Lock-Generation verworfen.
 
-Lokal wurden 77 Tests und strenges Clippy ausgeführt. Native Windows-Ergebnisse und Hardwaregrenzen stehen in [VALIDATION.md](VALIDATION.md). Die aktualisierte Abhängigkeitsprüfung meldet keine klassifizierten Schwachstellen oder Unsoundness; der unten dokumentierte Schriftbibliotheks-Wartungshinweis bleibt.
+Lokal wurden 77 Tests und strenges Clippy ausgeführt. Zusätzlich bestanden 79 Tests und die vollständige native MSVC-/Installer-Abnahme im Lauf 43604813268. Native Windows-Ergebnisse und Hardwaregrenzen stehen in [VALIDATION.md](VALIDATION.md). Die aktualisierte Abhängigkeitsprüfung meldet keine klassifizierten Schwachstellen oder Unsoundness; der unten dokumentierte Schriftbibliotheks-Wartungshinweis bleibt.
 
 ---
 

@@ -14,6 +14,22 @@ Die App sperrt den Tresor und beendet sich vor dem Austausch. Nach erfolgreicher
 
 Das Release enthält die direkt startbare EXE sowie den Installer und ein ZIP mit beiden Varianten, Anleitungen und Lizenzhinweisen. Es benötigt keine zusätzliche .NET-, MSIX-, App-SDK- oder VC++-Installation. Es besitzt keine behauptete Authenticode-Signatur; Windows kann deshalb SmartScreen-Hinweise anzeigen.
 
+## Lokal paketieren
+
+Nach den vollständigen Rust-Prüfungen und dem MSVC-Release-Build im Repository-Verzeichnis mit PowerShell 7:
+
+```powershell
+./installer/install-compiler.ps1
+$commit = (git rev-parse HEAD).Trim()
+New-Item -ItemType Directory -Force build-artifact | Out-Null
+Copy-Item target/x86_64-pc-windows-msvc/release/hushlink.exe build-artifact/hushlink.exe
+[IO.File]::WriteAllText("$pwd/build-artifact/build-commit.txt", "$commit`n", [Text.UTF8Encoding]::new($false))
+./scripts/package.ps1 -Version v0.2.0 -Commit $commit
+./scripts/windows-installer-smoke.ps1 -Installer release-assets/Hushlink-v0.2.0-windows-x64-setup.exe -Application build-artifact/hushlink.exe -Version 0.2.0
+```
+
+Die letzte Zeile installiert und deinstalliert tatsächlich. Sie ist für ein sauberes, wegwerfbares Windows-Testkonto bestimmt und verweigert vorhandene Hushlink-Installationen. Alle normalen Benutzerprofile bleiben unangetastet. Für Veröffentlichungen übernimmt ausschließlich der gegatete Tag-Workflow diese Schritte und veröffentlicht genau die erfolgreich getesteten Dateien.
+
 Der verpflichtende Windows-Check installiert den tatsächlich gebauten Installer still, prüft Binäridentität, Registrierung und Startmenü, startet die installierte App sichtbar und per `--tray`, überprüft den Erhalt der Autostart-Auswahl bei erneutem Installieren sowie einen stillen Neustart und deinstalliert anschließend. Künstliche Dateien innerhalb und außerhalb des Installationsverzeichnisses müssen dabei erhalten bleiben. Das ist kein physischer Bluetooth-Test.
 
 Offizielle Grundlagen: [Nicht administrative Installation](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm), [Setup-Architektur](https://jrsoftware.org/ishelp/topic_setup_setuparchitecture.htm), [Restart Manager](https://jrsoftware.org/ishelp/topic_setup_closeapplications.htm), [Datei-/Registry-Deinstallation](https://jrsoftware.org/ishelp/topic_registrysection.htm), [Installationsparameter](https://jrsoftware.org/ishelp/topic_setupcmdline.htm).
