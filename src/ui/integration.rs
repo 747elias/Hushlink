@@ -582,7 +582,7 @@ impl App {
                             if ui.button("Ablehnen").clicked() { self.command(Command::RespondFile { id: transfer.id.clone(), accept: false }); }
                         }); }
                         AwaitingConsent => { ui.label("Warte auf die Annahme der anderen Person …"); }
-                        Transferring => { ui.add(egui::ProgressBar::new(transfer.transferred as f32/transfer.size.max(1) as f32).text(format!("{} / {}",bytes(transfer.transferred),bytes(transfer.size)))); }
+                        Transferring => { ui.label(if transfer.bytes_per_second==0{"Rate wird ermittelt …".into()}else{format!("{}/s · {}",bytes(transfer.bytes_per_second),transfer.eta_seconds.map_or("Restzeit unbekannt".into(),|seconds|format!("etwa {} Min. {} Sek.",seconds/60,seconds%60)))}); ui.add(egui::ProgressBar::new(transfer.transferred as f32/transfer.size.max(1) as f32).text(format!("{} / {}",bytes(transfer.transferred),bytes(transfer.size)))); }
                         Stored => { ui.colored_label(MINT, "Verschlüsselt gespeichert und bestätigt"); }
                         Cancelled => { ui.label("Abgebrochen"); }
                         Failed => { ui.colored_label(Color32::LIGHT_RED, "Übertragung fehlgeschlagen"); }

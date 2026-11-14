@@ -6,6 +6,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 mod features;
 mod integration;
+mod rich;
 use integration::{Integration, Picker};
 
 const MINT: Color32 = Color32::from_rgb(113, 222, 193);
@@ -109,6 +110,7 @@ fn configure(ctx: &egui::Context) {
 
 struct App {
     features: features::Features,
+    rich: rich::Rich,
     integration: Integration,
     runtime: Option<Runtime>,
     generation: u64,
@@ -138,6 +140,7 @@ impl App {
         let generation = runtime.as_ref().map_or(0, Runtime::generation);
         Self {
             features: Default::default(),
+            rich: Default::default(),
             integration: Integration::new(ctx),
             runtime,
             generation,
@@ -186,6 +189,7 @@ impl App {
 
     fn clear_locked_ui(&mut self, ctx: &egui::Context) {
         self.features.clear();
+        self.rich.zeroize();
         self.integration.clear_sensitive();
         let path = std::mem::take(&mut self.view.vault_path);
         self.view = View::default();
@@ -443,6 +447,7 @@ impl App {
     }
 
     fn chat(&mut self, ui: &mut egui::Ui) {
+        self.rich.sync(self.selected.as_deref());
         ui.add_space(8.0);
         if let Some(pending) = &self.view.pending_incoming {
             let name = pending.name.clone();
@@ -561,21 +566,49 @@ impl App {
                 self.integration.transfers_open = true;
             }
         });
-        let composer_height = 135.0;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.rich.query)
+                    .hint_text("Verlauf durchsuchen …")
+                    .char_limit(256),
+            );
+            ui.checkbox(&mut self.rich.all_contacts, "Alle Kontakte");
+            ui.checkbox(&mut self.rich.pinned_only, "Nur gemerkte");
+        });
+        if self.view.peer_typing && ready {
+            ui.label(RichText::new("Gegenstelle schreibt …").small().color(MINT));
+        }
+        let pending: Vec<String> = self
+            .view
+            .pending_actions
+            .iter()
+            .filter(|(_, c)| self.selected.as_deref() == Some(c))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !pending.is_empty() {
+            ui.collapsing(format!("{} unbestätigte Änderungen",pending.len()),|ui|{ui.label("Nach einem Abbruch neu verbinden und erneut übertragen. Wiederholungen werden ohne doppelte Nachrichten bestätigt.");for id in &pending{if ui.add_enabled(ready,egui::Button::new(format!("Änderung {} erneut übertragen",&id[..8]))).clicked(){self.command(Command::RetryAction{id:id.clone()});}}});
+        }
+        let composer_height = 165.0;
         let height = (ui.available_height() - composer_height).max(100.0);
         let mut has_messages = false;
         let mut export_file: Option<String> = None;
         let mut retry_file: Option<String> = None;
+        let mut rich_commands = Vec::new();
+        let mut selected_result = None;
         egui::ScrollArea::vertical().id_salt("messages").stick_to_bottom(true).auto_shrink([false, false]).max_height(height).show(ui, |ui| {
             for message in &self.view.messages {
-                if self.selected.as_deref() != Some(&message.contact_id) { continue; }
+                if (!self.rich.all_contacts && self.selected.as_deref()!=Some(&message.contact_id)) || !self.rich.matches(message){continue;}
                 has_messages = true;
                 let layout = if message.outgoing { egui::Layout::right_to_left(egui::Align::TOP) } else { egui::Layout::left_to_right(egui::Align::TOP) };
                 ui.with_layout(layout, |ui| {
                     egui::Frame::new().fill(if message.outgoing { Color32::from_rgb(25, 66, 62) } else { PANEL }).corner_radius(12.0).inner_margin(12.0).show(ui, |ui| {
                         ui.set_max_width((ui.available_width() * 0.85).max(120.0));
                         ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            if self.rich.all_contacts && let Some(c)=self.view.contacts.iter().find(|c|c.id==message.contact_id) && ui.small_button(&c.name).clicked(){selected_result=Some(c.id.clone());}
+                            if let Some(id)=&message.reply_to{let quoted=self.view.messages.iter().find(|m|m.id==*id && m.contact_id==message.contact_id);ui.group(|ui|{ui.label(RichText::new("Antwort auf").small().color(MINT));ui.add(egui::Label::new(quoted.map_or("Nicht gespeicherte Nachricht",|m|m.text.as_str())).wrap().truncate());});}
                             ui.add(egui::Label::new(message.text.as_str()).wrap());
+                            let same_peer=ready && self.selected.as_deref()==Some(&message.contact_id);
+                            if let Some(command)=self.rich.controls(ui,message,same_peer){rich_commands.push(command);}
                             if let Some(id) = &message.attachment_id {
                                 ui.label(RichText::new(format!("Dateianhang · {:.1} KiB", message.attachment_size as f64 / 1024.0)).small().color(MUTED));
                                 if message.status == MessageStatus::Received && ui.button("Speichern unter …").clicked() {
@@ -605,6 +638,13 @@ impl App {
                 });
             }
         });
+        if let Some(id) = selected_result {
+            self.selected = Some(id);
+            self.rich.all_contacts = false;
+        }
+        for command in rich_commands {
+            self.command(command);
+        }
         if let Some(id) = retry_file {
             self.command(Command::RetryFile { id });
             self.integration.transfers_open = true;
@@ -613,6 +653,22 @@ impl App {
             self.pick(Picker::Export { id }, ui.ctx());
         }
         ui.separator();
+        if let Some(target) = self.rich.reply.clone() {
+            ui.horizontal(|ui| {
+                ui.label("Antwort wird mit der ausgewählten Nachricht verknüpft.");
+                if ui.small_button("Abbrechen").clicked() {
+                    self.rich.reply = None;
+                }
+            });
+            if !self
+                .view
+                .messages
+                .iter()
+                .any(|m| m.id == target && self.selected.as_deref() == Some(&m.contact_id))
+            {
+                self.rich.reply = None;
+            }
+        }
         ui.add_enabled_ui(ready, |ui| {
             let response = ui.add_sized(
                 [ui.available_width(), 68.0],
@@ -628,6 +684,11 @@ impl App {
                         egui::Key::Enter,
                     ))),
             );
+            if response.changed() && self.view.share_typing {
+                self.command(Command::Typing {
+                    active: !self.composer.is_empty(),
+                });
+            }
             let enter = response.has_focus() && ui.input_mut(take_plain_enter);
             let valid = !self.composer.trim().is_empty() && self.composer.len() <= MAX_TEXT;
             ui.horizontal(|ui| {
@@ -645,11 +706,20 @@ impl App {
                         .clicked()
                         || enter)
                         && valid
-                        && self.command(Command::Send {
-                            text: self.composer.clone(),
+                        && self.command(if let Some(target) = &self.rich.reply {
+                            Command::Conversation(crate::conversation::Action::Reply {
+                                target: target.clone(),
+                                text: self.composer.to_string(),
+                            })
+                        } else {
+                            Command::Send {
+                                text: self.composer.clone(),
+                            }
                         })
                     {
                         self.composer.zeroize();
+                        self.rich.reply = None;
+                        self.command(Command::Typing { active: false });
                         response.request_focus();
                     }
                 });
@@ -680,6 +750,8 @@ impl App {
             let mut minutes = self.view.inactivity_minutes.max(1);
             if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Min.")).changed() { self.command(Command::SetInactivity { minutes }); }
             ui.label(RichText::new("Beim Sperren der Windows-Sitzung wird Hushlink ebenfalls gesperrt. Offene Verbindungen werden beendet.").small().color(MUTED));
+            ui.separator();
+            self.rich_settings(ui);
             ui.separator();
             ui.heading("Passwort ändern");
             ui.label("Bisheriges Passwort");
@@ -768,6 +840,9 @@ impl eframe::App for App {
         self.settings(ctx);
         self.file_window(ctx);
         self.feature_windows(ctx);
+        if self.view.unlocked {
+            self.edit_window(ctx);
+        }
         ctx.request_repaint_after(Duration::from_millis(200));
     }
 }

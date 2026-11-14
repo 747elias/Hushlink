@@ -154,6 +154,9 @@ impl App {
                 self.command(Command::EditContact { id: contact.id.clone(), alias: self.features.alias.to_string(), favorite: self.features.favorite });
             }
             ui.separator();
+            ui.label(if contact.muted_until_ms>super::rich::now_ms(){"Benachrichtigungen für diesen Kontakt stumm"}else{"Benachrichtigungen für diesen Kontakt aktiv"});
+            ui.horizontal_wrapped(|ui|{for (label,duration) in [("1 Stunde",3_600_000),("1 Tag",86_400_000),("Dauerhaft",u64::MAX),("Laut",0)]{if ui.button(label).clicked(){self.command(Command::MuteContact{id:contact.id.clone(),until_ms:if duration==0 || duration==u64::MAX{duration}else{super::rich::now_ms().saturating_add(duration)}});}}});
+            ui.separator();
             ui.label(format!("Name der Gegenstelle: {}", contact.advertised_name));
             ui.label(format!("Bluetooth-Adresse: {}", contact.address));
             ui.colored_label(MINT, "Identität unabhängig bestätigt und verschlüsselt gespeichert");

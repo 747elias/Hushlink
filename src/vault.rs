@@ -26,7 +26,7 @@ pub const MAX_CONTACTS: usize = 500;
 pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 80 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 1_000;
-const PROFILE_SCHEMA_VERSION: u16 = 3;
+const PROFILE_SCHEMA_VERSION: u16 = 4;
 
 fn legacy_schema_version() -> u16 {
     1
@@ -46,6 +46,10 @@ pub struct Profile {
     pub attachments: Vec<Attachment>,
     #[serde(default)]
     pub partials: Vec<PartialAttachment>,
+    #[serde(default)]
+    pub pending_actions: Vec<crate::conversation::PendingAction>,
+    #[serde(default)]
+    pub action_receipts: Vec<crate::conversation::Receipt>,
     pub settings: Settings,
 }
 
@@ -64,6 +68,8 @@ impl Profile {
             messages: Vec::new(),
             attachments: Vec::new(),
             partials: Vec::new(),
+            pending_actions: Vec::new(),
+            action_receipts: Vec::new(),
             settings: Settings::default(),
         }
     }
@@ -82,6 +88,8 @@ pub struct Contact {
     pub favorite: bool,
     #[serde(default)]
     pub unread: u32,
+    #[serde(default)]
+    pub muted_until_ms: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -95,6 +103,20 @@ pub struct StoredMessage {
     pub status: MessageStatus,
     #[serde(default)]
     pub attachment_id: Option<String>,
+    #[serde(default)]
+    pub reply_to: Option<String>,
+    #[serde(default)]
+    pub edit_revision: u32,
+    #[serde(default)]
+    pub reaction_local: String,
+    #[serde(default)]
+    pub reaction_remote: String,
+    #[serde(default)]
+    pub reaction_local_revision: u32,
+    #[serde(default)]
+    pub reaction_remote_revision: u32,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// Attachment bytes remain inside the same authenticated encrypted file as the
@@ -173,12 +195,33 @@ pub struct Settings {
     pub inactivity_minutes: u32,
     #[serde(default = "enabled_by_default")]
     pub notifications: bool,
+    #[serde(default)]
+    pub share_typing: bool,
+    #[serde(default)]
+    pub unknown_block_until_ms: u64,
+    #[serde(default)]
+    pub backup_folder: String,
+    #[serde(default = "default_backup_retention")]
+    pub backup_retention: u8,
+    #[serde(default = "default_backup_interval")]
+    pub backup_interval_minutes: u32,
+    #[serde(default)]
+    pub backup_id: String,
+    #[serde(default)]
+    pub last_backup_ms: u64,
     #[serde(default = "enabled_by_default")]
     pub start_with_windows: bool,
     #[serde(default = "enabled_by_default")]
     pub minimize_to_tray: bool,
     #[serde(default = "enabled_by_default")]
     pub automatic_updates: bool,
+}
+
+fn default_backup_retention() -> u8 {
+    5
+}
+fn default_backup_interval() -> u32 {
+    1440
 }
 
 fn enabled_by_default() -> bool {
@@ -190,6 +233,13 @@ impl Default for Settings {
         Self {
             inactivity_minutes: 5,
             notifications: true,
+            share_typing: false,
+            unknown_block_until_ms: 0,
+            backup_folder: String::new(),
+            backup_retention: 5,
+            backup_interval_minutes: 1440,
+            backup_id: String::new(),
+            last_backup_ms: 0,
             start_with_windows: true,
             minimize_to_tray: true,
             automatic_updates: true,
@@ -550,6 +600,14 @@ fn validate_profile(profile: &Profile) -> Result<()> {
         || profile.contacts.len() > MAX_CONTACTS
         || profile.messages.len() > MAX_MESSAGES
         || profile.attachments.len() + profile.partials.len() > MAX_ATTACHMENTS
+        || profile.pending_actions.len() > 64
+        || profile.action_receipts.len() > 10_000
+        || !(1..=20).contains(&profile.settings.backup_retention)
+        || !(5..=10080).contains(&profile.settings.backup_interval_minutes)
+        || profile.settings.backup_folder.len() > 16384
+        || (!profile.settings.backup_id.is_empty()
+            && (profile.settings.backup_id.len() != 32
+                || hex::decode(&profile.settings.backup_id).is_err()))
         || !(1..=120).contains(&profile.settings.inactivity_minutes)
     {
         return Err(VaultError::InvalidProfile);
@@ -571,6 +629,15 @@ fn validate_profile(profile: &Profile) -> Result<()> {
             || message.id.len() > 128
             || message.text.is_empty()
             || message.text.len() > MAX_MESSAGE_BYTES
+            || message
+                .reply_to
+                .as_ref()
+                .is_some_and(|id| id.len() != 32 || hex::decode(id).is_err())
+            || message.edit_revision > 1000
+            || message.reaction_local_revision > 1000
+            || message.reaction_remote_revision > 1000
+            || !crate::conversation::REACTIONS.contains(&message.reaction_local.as_str())
+            || !crate::conversation::REACTIONS.contains(&message.reaction_remote.as_str())
             || !profile.contacts.iter().any(|c| c.id == message.contact_id)
             || profile.messages[..index]
                 .iter()
@@ -582,6 +649,18 @@ fn validate_profile(profile: &Profile) -> Result<()> {
                         && attachment.outgoing == message.outgoing
                 })
             })
+        {
+            return Err(VaultError::InvalidProfile);
+        }
+    }
+    for (index, pending) in profile.pending_actions.iter().enumerate() {
+        if pending.id.len() != 32
+            || hex::decode(&pending.id).is_err()
+            || pending.action.validate().is_err()
+            || !profile.contacts.iter().any(|c| c.id == pending.contact_id)
+            || profile.pending_actions[..index]
+                .iter()
+                .any(|p| p.id == pending.id)
         {
             return Err(VaultError::InvalidProfile);
         }
@@ -616,6 +695,17 @@ fn validate_profile(profile: &Profile) -> Result<()> {
                 })
                 .count()
                 != 1
+        {
+            return Err(VaultError::InvalidProfile);
+        }
+    }
+    for (index, receipt) in profile.action_receipts.iter().enumerate() {
+        if receipt.id.len() != 32
+            || hex::decode(&receipt.id).is_err()
+            || !profile.contacts.iter().any(|c| c.id == receipt.contact_id)
+            || profile.action_receipts[..index]
+                .iter()
+                .any(|r| r.id == receipt.id)
         {
             return Err(VaultError::InvalidProfile);
         }
@@ -932,6 +1022,7 @@ mod tests {
             alias: String::new(),
             favorite: false,
             unread: 0,
+            muted_until_ms: 0,
         };
         profile.messages.push(StoredMessage {
             id: "synthetic-message-1".to_owned(),
@@ -941,6 +1032,13 @@ mod tests {
             outgoing: true,
             status: MessageStatus::Received,
             attachment_id: None,
+            reply_to: None,
+            edit_revision: 0,
+            reaction_local: String::new(),
+            reaction_remote: String::new(),
+            reaction_local_revision: 0,
+            reaction_remote_revision: 0,
+            pinned: false,
         });
         profile.contacts.push(contact);
         profile
@@ -959,6 +1057,13 @@ mod tests {
             outgoing: false,
             status: MessageStatus::Received,
             attachment_id: Some(id.clone()),
+            reply_to: None,
+            edit_revision: 0,
+            reaction_local: String::new(),
+            reaction_remote: String::new(),
+            reaction_local_revision: 0,
+            reaction_remote_revision: 0,
+            pinned: false,
         });
         profile.attachments.push(Attachment {
             id,

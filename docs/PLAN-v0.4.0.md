@@ -1,0 +1,13 @@
+# Hushlink v0.4.0
+
+1. Bestand/AGENTS, Signierkonfiguration und offizielle Windows-APIs prüfen. Kein Vertrauen durch selbst ausgestellte Zertifikate vortäuschen.
+2. Tresor/Protokoll für Antworten, Reaktionen, Bearbeitungen, Schreibanzeige, Pins und lokale Suche erweitern; Grenzen und negative Tests.
+3. Zwischenablage-Bilder als ausdrücklich bestätigte Anhänge, Übertragungsrate/Restzeit, Kontakt-Stummschaltung, Speicherübersicht und Anfragebegrenzung integrieren.
+4. Vollständigen Sicherheitscode als QR vergleichen und per Kamera prüfen; Windows Hello nur mit echter Bindung an einen vom Windows-Hello-Provider geschützten nicht exportierbaren Schlüssel. Passwort bleibt Rückweg.
+5. Automatische verschlüsselte Backups mit begrenzter Aufbewahrung und sicherem Wiederherstellungsablauf. Keine Klartext-Exporte oder Sicherungen von Schlüsseln.
+6. Format, Clippy, Tests, tatsächliche Windows-MSVC-/Installer-Prüfungen, Oberfläche, regelmässige Commits/Pushes.
+7. Signieren vor der Verpackung/Prüfung; Authenticode und Timestamp prüfen. Eine signierte Veröffentlichung braucht eine gültige autorisierte Herausgeberidentität. Ohne sie keinen unsignierten Release als fertige Erfüllung veröffentlichen.
+
+Signierstatus zu Beginn: lokal keine passende Konfiguration gefunden. Die GitHub-Integration darf Actions-Secrets/Variablen nicht auflisten (403); ein dort vorhandenes Zertifikat kann daher nicht bestätigt werden. Nutzer nach vorhandenem Signierdienst/Zertifikat gefragt. Feature-Arbeit geht unabhängig weiter.
+
+Zwischenstand: Nutzer bestätigt, noch kein Zertifikat oder Signierdienst. Antworten, Bearbeitungen, Reaktionen, optionale Schreibanzeige, Suche, Pins, Kontakt-Stummschaltung, Anfragebegrenzung und Rate/Restzeit implementiert; strenger lokaler Clippy erfolgreich, erweiterte Tests laufen. Windows-/UI-Nachweis für v0.4 noch ausstehend.

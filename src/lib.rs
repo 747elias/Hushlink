@@ -9,3 +9,6 @@ pub mod storage_location;
 pub mod updater;
 
 pub mod notifications;
+
+pub mod conversation;
+pub mod transfer_metrics;

@@ -34,11 +34,34 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 #[cfg(windows)]
 mod windows_lock;
 
+mod rich;
+
 const COMMAND_CAPACITY: usize = 64;
 const FRAME_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_NETWORK_FRAME: usize = protocol::MAX_FRAME;
 
 pub enum Command {
+    Conversation(crate::conversation::Action),
+    RetryAction {
+        id: String,
+    },
+    Pin {
+        id: String,
+        pinned: bool,
+    },
+    Typing {
+        active: bool,
+    },
+    SetShareTyping {
+        enabled: bool,
+    },
+    MuteContact {
+        id: String,
+        until_ms: u64,
+    },
+    BlockUnknown {
+        until_ms: u64,
+    },
     RefreshBluetooth,
     CancelBluetooth,
     EditContact {
@@ -154,6 +177,7 @@ pub struct ContactView {
     pub advertised_name: String,
     pub favorite: bool,
     pub unread: u32,
+    pub muted_until_ms: u64,
     pub identity: String,
     pub id: String,
     pub name: String,
@@ -161,6 +185,14 @@ pub struct ContactView {
 }
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct MessageView {
+    pub reply_to: Option<String>,
+    pub edited: bool,
+    pub edit_revision: u32,
+    pub reaction_local: String,
+    pub reaction_remote: String,
+    pub reaction_revision: u32,
+    pub pinned: bool,
+    pub action_pending: bool,
     pub can_resume: bool,
     pub id: String,
     pub contact_id: String,
@@ -197,6 +229,8 @@ pub struct FileTransferView {
     pub name: String,
     pub size: u64,
     pub transferred: u64,
+    pub bytes_per_second: u64,
+    pub eta_seconds: Option<u64>,
     pub outgoing: bool,
     #[zeroize(skip)]
     pub state: FileTransferState,
@@ -211,6 +245,10 @@ pub struct PartialView {
 }
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub pending_actions: Vec<(String, String)>,
+    pub share_typing: bool,
+    pub peer_typing: bool,
+    pub unknown_block_until_ms: u64,
     pub partials: Vec<PartialView>,
     pub notifications: bool,
     pub bluetooth_checked: bool,
@@ -547,6 +585,9 @@ struct OutgoingFile {
     activity: Instant,
 }
 enum PeerCommand {
+    Action(protocol::MessageId, crate::conversation::Action),
+    ActionAck(protocol::MessageId),
+    Typing(bool),
     Confirm,
     Send(Zeroizing<String>),
     Ack(protocol::MessageId),
@@ -559,6 +600,13 @@ enum PeerCommand {
     Close,
 }
 enum PeerEvent {
+    Action {
+        id: protocol::MessageId,
+        action: crate::conversation::Action,
+    },
+    ActionSent(protocol::MessageId),
+    ActionAck(protocol::MessageId),
+    Typing(bool),
     Identity {
         key: [u8; 32],
         fingerprint: String,
@@ -628,6 +676,11 @@ impl Drop for PeerWorker {
 }
 
 struct Actor {
+    action_attempts: std::collections::HashSet<String>,
+    peer_typing_since: Option<Instant>,
+    local_typing_since: Option<Instant>,
+    meters: std::collections::HashMap<String, crate::transfer_metrics::Meter>,
+    last_unknown_request: Option<Instant>,
     path: PathBuf,
     default_path: PathBuf,
     path_error: Option<String>,
@@ -692,6 +745,11 @@ impl Actor {
         view.minimize_to_tray = desktop_preferences.minimize_to_tray;
         view.automatic_updates = desktop_preferences.automatic_updates;
         Self {
+            action_attempts: Default::default(),
+            peer_typing_since: None,
+            local_typing_since: None,
+            meters: Default::default(),
+            last_unknown_request: None,
             path,
             default_path,
             path_error,
@@ -762,6 +820,13 @@ impl Actor {
         self.view.profile_name.clone_from(&profile.display_name);
         self.view.inactivity_minutes = profile.settings.inactivity_minutes;
         self.view.notifications = profile.settings.notifications;
+        self.view.share_typing = profile.settings.share_typing;
+        self.view.unknown_block_until_ms = profile.settings.unknown_block_until_ms;
+        self.view.pending_actions = profile
+            .pending_actions
+            .iter()
+            .map(|p| (p.id.clone(), p.contact_id.clone()))
+            .collect();
         self.hub.notices.configure(
             self.generation,
             self.current()
@@ -800,6 +865,7 @@ impl Actor {
                 advertised_name: c.display_name.clone(),
                 favorite: c.favorite,
                 unread: c.unread,
+                muted_until_ms: c.muted_until_ms,
                 identity: hex::encode_upper(c.identity_key),
                 address: c.bluetooth_address.clone(),
             })
@@ -813,6 +879,17 @@ impl Actor {
             .messages
             .iter()
             .map(|m| MessageView {
+                reply_to: m.reply_to.clone(),
+                edited: m.edit_revision > 0,
+                edit_revision: m.edit_revision,
+                reaction_local: m.reaction_local.clone(),
+                reaction_remote: m.reaction_remote.clone(),
+                reaction_revision: m.reaction_local_revision,
+                pinned: m.pinned,
+                action_pending: profile
+                    .pending_actions
+                    .iter()
+                    .any(|p| p.action.target() == m.id || p.id == m.id),
                 can_resume: m.outgoing
                     && m.attachment_id.is_some()
                     && m.status == vault::MessageStatus::Failed,
@@ -862,6 +939,11 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.action_attempts.clear();
+        self.peer_typing_since = None;
+        self.local_typing_since = None;
+        self.meters.clear();
+        self.last_unknown_request = None;
         self.checkpoint_incoming();
         self.hub.notices.configure(self.generation, false);
         self.hub.sensitive.store(false, Ordering::Release);
@@ -917,6 +999,15 @@ impl Actor {
                 self.clear();
             }
             self.enforce_idle_lock();
+            if self.view.peer_typing
+                && self
+                    .peer_typing_since
+                    .is_none_or(|t| t.elapsed() > Duration::from_secs(6))
+            {
+                self.view.peer_typing = false;
+                self.peer_typing_since = None;
+                self.snapshot();
+            }
             if self.incoming_file.as_ref().is_some_and(|file| {
                 file.activity.elapsed() > Duration::from_secs(if file.accepted { 90 } else { 180 })
             }) {
@@ -1122,6 +1213,51 @@ impl Actor {
     }
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::Conversation(action) => self.queue_action(action.clone())?,
+            Command::RetryAction { id } => self.retry_action(id)?,
+            Command::Typing { active } => self.typing(*active)?,
+            Command::Pin { id, pinned } => {
+                let m = self
+                    .vault
+                    .as_mut()
+                    .and_then(|v| v.profile_mut().messages.iter_mut().find(|m| m.id == *id))
+                    .ok_or_else(|| anyhow::anyhow!("Nachricht fehlt."))?;
+                m.pinned = *pinned;
+                anyhow::ensure!(self.save(), "Markierung konnte nicht gespeichert werden.");
+            }
+            Command::SetShareTyping { enabled } => {
+                if !*enabled
+                    && self.view.share_typing
+                    && self.view.peer.as_ref().is_some_and(|p| p.ready)
+                {
+                    self.typing(false)?;
+                }
+                if let Some(v) = &mut self.vault {
+                    v.profile_mut().settings.share_typing = *enabled;
+                }
+                anyhow::ensure!(self.save(), "Einstellung konnte nicht gespeichert werden.");
+            }
+            Command::MuteContact { id, until_ms } => {
+                let c = self
+                    .vault
+                    .as_mut()
+                    .and_then(|v| v.profile_mut().contacts.iter_mut().find(|c| c.id == *id))
+                    .ok_or_else(|| anyhow::anyhow!("Kontakt fehlt."))?;
+                c.muted_until_ms = *until_ms;
+                anyhow::ensure!(
+                    self.save(),
+                    "Stummschaltung konnte nicht gespeichert werden."
+                );
+            }
+            Command::BlockUnknown { until_ms } => {
+                if let Some(v) = &mut self.vault {
+                    v.profile_mut().settings.unknown_block_until_ms = *until_ms;
+                }
+                anyhow::ensure!(
+                    self.save(),
+                    "Anfrageeinstellung konnte nicht gespeichert werden."
+                );
+            }
             Command::RefreshBluetooth => {
                 anyhow::ensure!(
                     self.view.bluetooth_checked,
@@ -1175,6 +1311,8 @@ impl Actor {
                     p.messages.retain(|m| m.contact_id != *id);
                     p.attachments.retain(|f| f.contact_id != *id);
                     p.partials.retain(|f| f.contact_id != *id);
+                    p.pending_actions.retain(|a| a.contact_id != *id);
+                    p.action_receipts.retain(|a| a.contact_id != *id);
                 }
                 anyhow::ensure!(self.save(), "Kontakt konnte nicht entfernt werden.");
             }
@@ -1366,6 +1504,14 @@ impl Actor {
                         .is_some_and(|p| p.id == *contact_id && p.ready),
                     "Bitte vor dem Löschen die aktive Verbindung trennen."
                 );
+                if let Some(v) = &mut self.vault {
+                    v.profile_mut()
+                        .pending_actions
+                        .retain(|a| a.contact_id != *contact_id);
+                    v.profile_mut()
+                        .action_receipts
+                        .retain(|a| a.contact_id != *contact_id);
+                }
                 if let Some(vault) = &mut self.vault {
                     vault
                         .profile_mut()
@@ -1502,6 +1648,13 @@ impl Actor {
                         outgoing: false,
                         status: vault::MessageStatus::Pending,
                         attachment_id: None,
+                        reply_to: None,
+                        edit_revision: 0,
+                        reaction_local: String::new(),
+                        reaction_remote: String::new(),
+                        reaction_local_revision: 0,
+                        reaction_remote_revision: 0,
+                        pinned: false,
                     });
                 }
                 if !profile.attachments.iter().any(|f| f.id == id)
@@ -1539,6 +1692,10 @@ impl Actor {
                 .incoming_file
                 .as_ref()
                 .map_or(0, |f| f.data.len() as u64);
+            self.meters.insert(
+                hex::encode(message_id),
+                crate::transfer_metrics::Meter::new(offset),
+            );
             self.transfer_progress(message_id, offset);
             self.transfer_state(message_id, FileTransferState::Transferring);
         } else {
@@ -1903,6 +2060,11 @@ impl Actor {
         Ok(())
     }
     fn disconnect(&mut self, status: &str) {
+        self.action_attempts.clear();
+        self.peer_typing_since = None;
+        self.local_typing_since = None;
+        self.view.peer_typing = false;
+        self.meters.clear();
         self.checkpoint_incoming();
         self.file_attempts.clear();
         self.incoming_file = None;
@@ -2052,6 +2214,24 @@ impl Actor {
                 self.view.status = "Verbindungen werden angeboten. Sichtbarkeit bei Bedarf in Windows einschalten.".into();
             }
             BackgroundEvent::Incoming(stream, device, flag) => {
+                let known = self.vault.as_ref().is_some_and(|v| {
+                    v.profile()
+                        .contacts
+                        .iter()
+                        .any(|c| c.bluetooth_address == device.address)
+                });
+                if !known
+                    && (self.view.unknown_block_until_ms > timestamp_ms()
+                        || self
+                            .last_unknown_request
+                            .is_some_and(|t| t.elapsed() < Duration::from_secs(10)))
+                {
+                    stream.cancel_handle().cancel();
+                    return;
+                }
+                if !known {
+                    self.last_unknown_request = Some(Instant::now());
+                }
                 if flag.load(Ordering::Acquire)
                     || self.peer.is_some()
                     || self.pending.is_some()
@@ -2108,6 +2288,26 @@ impl Actor {
     }
     fn peer_event(&mut self, event: PeerEvent) {
         match event {
+            PeerEvent::Action { id, action } => self.receive_action(id, &action),
+            PeerEvent::ActionSent(id) => {
+                if self.vault.as_ref().is_some_and(|v| {
+                    v.profile()
+                        .messages
+                        .iter()
+                        .any(|m| m.id == hex::encode(id) && m.outgoing)
+                }) {
+                    self.update_delivery(id, vault::MessageStatus::Sent);
+                }
+            }
+            PeerEvent::ActionAck(id) => self.action_ack(id),
+            PeerEvent::Typing(active) => {
+                if self.view.peer.as_ref().is_some_and(|p| p.ready) {
+                    self.view.peer_typing = active;
+                    self.peer_typing_since = if active { Some(Instant::now()) } else { None };
+                } else {
+                    self.disconnect("Schreibanzeige vor Kontaktbestätigung verworfen");
+                }
+            }
             PeerEvent::Identity {
                 key,
                 fingerprint,
@@ -2172,6 +2372,7 @@ impl Actor {
                             alias: String::new(),
                             favorite: false,
                             unread: 0,
+                            muted_until_ms: 0,
                         });
                     }
                 }
@@ -2209,6 +2410,13 @@ impl Actor {
                         contact_id: peer.id.clone(),
                         text: text.to_string(),
                         attachment_id: None,
+                        reply_to: None,
+                        edit_revision: 0,
+                        reaction_local: String::new(),
+                        reaction_remote: String::new(),
+                        reaction_local_revision: 0,
+                        reaction_remote_revision: 0,
+                        pinned: false,
                         timestamp_ms: timestamp_ms(),
                         outgoing: true,
                         status: vault::MessageStatus::Pending,
@@ -2267,6 +2475,13 @@ impl Actor {
                         contact_id: peer.id.clone(),
                         text: text.to_string(),
                         attachment_id: None,
+                        reply_to: None,
+                        edit_revision: 0,
+                        reaction_local: String::new(),
+                        reaction_remote: String::new(),
+                        reaction_local_revision: 0,
+                        reaction_remote_revision: 0,
+                        pinned: false,
                         timestamp_ms: timestamp_ms(),
                         outgoing: false,
                         status: vault::MessageStatus::Received,
@@ -2274,7 +2489,7 @@ impl Actor {
                 }
                 if self.save() {
                     if self.current() {
-                        self.hub.notices.received(self.generation);
+                        self.notify_peer();
                     }
                     if let Some(peer) = &self.peer
                         && peer.commands.try_send(PeerCommand::Ack(id)).is_err()
@@ -2323,9 +2538,11 @@ impl Actor {
                     activity: Instant::now(),
                 });
                 self.view.status = "Dateiangebot – Annahme ist erforderlich".into();
-                self.hub.notices.received(self.generation);
+                self.notify_peer();
             }
             PeerEvent::FileAccepted(id) => {
+                self.meters
+                    .insert(hex::encode(id), crate::transfer_metrics::Meter::new(0));
                 if !self.file_cancelled(id) {
                     self.transfer_state(id, FileTransferState::Transferring);
                 }
@@ -2478,11 +2695,17 @@ impl Actor {
             size,
             transferred: 0,
             outgoing,
+            bytes_per_second: 0,
+            eta_seconds: None,
             state: FileTransferState::AwaitingConsent,
         });
     }
     fn transfer_progress(&mut self, id: protocol::MessageId, transferred: u64) {
         let id = hex::encode(id);
+        let meter = self
+            .meters
+            .entry(id.clone())
+            .or_insert_with(|| crate::transfer_metrics::Meter::new(transferred));
         if let Some(transfer) = self
             .view
             .transfers
@@ -2490,6 +2713,8 @@ impl Actor {
             .find(|transfer| transfer.id == id)
         {
             transfer.transferred = transferred;
+            (transfer.bytes_per_second, transfer.eta_seconds) =
+                meter.measure(transferred, transfer.size);
         }
     }
     fn store_outgoing_file(&mut self, id: protocol::MessageId, file: &PreparedFile) -> bool {
@@ -2550,6 +2775,13 @@ impl Actor {
                 outgoing: true,
                 status: vault::MessageStatus::Pending,
                 attachment_id: Some(message_id.clone()),
+                reply_to: None,
+                edit_revision: 0,
+                reaction_local: String::new(),
+                reaction_remote: String::new(),
+                reaction_local_revision: 0,
+                reaction_remote_revision: 0,
+                pinned: false,
             });
             vault.profile_mut().attachments.push(vault::Attachment {
                 id: message_id,
@@ -2620,7 +2852,7 @@ impl Actor {
         }
         if self.save() && self.current() {
             if newly_stored {
-                self.hub.notices.received(self.generation);
+                self.notify_peer();
             }
             self.transfer_state(id, FileTransferState::Stored);
             if self.peer_command(PeerCommand::FileStored(id)).is_err() {
@@ -2919,6 +3151,12 @@ fn peer_loop(
                             protocol::write_frame(&mut stream, &frame)?;
                             emit(PeerEvent::Sent(message_id))?;
                         }
+                        PeerCommand::Action(message_id,action)=>{
+                            anyhow::ensure!(ready_announced && session.is_ready(),"Kontakt noch nicht bestätigt.");
+                            protocol::write_frame(&mut stream,&session.send_action(message_id,&action)?)?;emit(PeerEvent::ActionSent(message_id))?;
+                        }
+                        PeerCommand::ActionAck(message_id)=>{protocol::write_frame(&mut stream,&session.acknowledge_action(message_id)?)?;}
+                        PeerCommand::Typing(active)=>{protocol::write_frame(&mut stream,&session.send_typing(active)?)?;}
                         PeerCommand::Ack(message_id) => { protocol::write_frame(&mut stream, &session.acknowledge(message_id)?)?; }
                         PeerCommand::OfferFile(file) => {
                             anyhow::ensure!(ready_announced && session.is_ready(), "Kontakt noch nicht beidseitig bestätigt.");
@@ -2979,6 +3217,9 @@ fn peer_loop(
                         }
                         protocol::Event::TrustConfirmed => {}
                         protocol::Event::Chat { id, text } => { emit(PeerEvent::Chat { id, text: Zeroizing::new(text) })?; }
+                        protocol::Event::Action{id,action}=>{emit(PeerEvent::Action{id,action})?;}
+                        protocol::Event::ActionAck{id}=>{emit(PeerEvent::ActionAck(id))?;}
+                        protocol::Event::Typing{active}=>{emit(PeerEvent::Typing(active))?;}
                         protocol::Event::Ack { id } => { emit(PeerEvent::Ack(id))?; }
                         protocol::Event::FileOffer { id, name, size, sha256 } => {
                             incoming_file_id = Some(id);
@@ -3346,6 +3587,7 @@ mod tests {
                 alias: String::new(),
                 favorite: false,
                 unread: 0,
+                muted_until_ms: 0,
             });
         }
         anyhow::ensure!(actor.save(), "synthetic profile could not be saved");
@@ -4130,6 +4372,120 @@ mod tests {
         assert!(
             matches!(guard.state.take(), Some((1, ref view)) if view.status == "Final synthetic state")
         );
+        Ok(())
+    }
+    #[test]
+    fn rich_actions_are_durable_replay_safe_and_blocked_after_lock() -> anyhow::Result<()> {
+        use crate::conversation::Action;
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        assert!(
+            actor
+                .command(&mut Command::Conversation(Action::Reply {
+                    target: hex::encode([1; 16]),
+                    text: "PRETRUST".into()
+                }))
+                .is_err()
+        );
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [1; 16],
+            text: Zeroizing::new("SYNTHETIC_QUOTE_SECRET_04".into()),
+        });
+        assert!(matches!(commands.try_recv()?, PeerCommand::Ack(_)));
+        actor.command(&mut Command::Conversation(Action::Reply {
+            target: hex::encode([1; 16]),
+            text: "SYNTHETIC_REPLY_SECRET_04".into(),
+        }))?;
+        let PeerCommand::Action(id, action) = commands.try_recv()? else {
+            anyhow::bail!("missing action");
+        };
+        assert!(matches!(action, Action::Reply { .. }));
+        assert_eq!(actor.view.pending_actions.len(), 1);
+        assert!(
+            actor
+                .command(&mut Command::RetryAction {
+                    id: hex::encode(id)
+                })
+                .is_err()
+        );
+        actor.peer_event(PeerEvent::ActionAck(id));
+        assert!(actor.view.pending_actions.is_empty());
+        assert_eq!(
+            actor.view.messages[1].status,
+            vault::MessageStatus::Received
+        );
+        actor.command(&mut Command::Conversation(Action::Edit {
+            target: hex::encode(id),
+            revision: 1,
+            text: "SYNTHETIC_EDIT_SECRET_04".into(),
+        }))?;
+        assert!(actor.view.messages[1].edited && actor.view.messages[1].action_pending);
+        let PeerCommand::Action(edit_id, _) = commands.try_recv()? else {
+            anyhow::bail!("missing edit");
+        };
+        actor.peer_event(PeerEvent::ActionAck(edit_id));
+        let reaction = Action::React {
+            target: hex::encode(id),
+            revision: 1,
+            reaction: "❤️".into(),
+        };
+        actor.peer_event(PeerEvent::Action {
+            id: [3; 16],
+            action: reaction.clone(),
+        });
+        assert!(matches!(commands.try_recv()?, PeerCommand::ActionAck(_)));
+        actor.peer_event(PeerEvent::Action {
+            id: [3; 16],
+            action: reaction,
+        });
+        assert!(matches!(commands.try_recv()?, PeerCommand::ActionAck(_)));
+        assert_eq!(actor.view.messages[1].reaction_remote, "❤️");
+        let bytes = std::fs::read(&actor.path)?;
+        for marker in [
+            "SYNTHETIC_QUOTE_SECRET_04",
+            "SYNTHETIC_REPLY_SECRET_04",
+            "SYNTHETIC_EDIT_SECRET_04",
+        ] {
+            assert!(!bytes.windows(marker.len()).any(|w| w == marker.as_bytes()));
+        }
+        actor.clear();
+        assert!(
+            actor
+                .command(&mut Command::Conversation(Action::React {
+                    target: hex::encode(id),
+                    revision: 1,
+                    reaction: "👍".into()
+                }))
+                .is_err()
+        );
+        assert!(actor.view.messages.is_empty() && actor.view.pending_actions.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn failed_action_persistence_never_sends_a_receipt() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [1; 16],
+            text: Zeroizing::new("synthetic source".into()),
+        });
+        let _ = commands.try_recv()?;
+        std::fs::write(&actor.path, b"synthetic external corruption")?;
+        actor.peer_event(PeerEvent::Action {
+            id: [2; 16],
+            action: crate::conversation::Action::Reply {
+                target: hex::encode([1; 16]),
+                text: "MUST_NOT_ACK".into(),
+            },
+        });
+        assert!(
+            !commands
+                .try_iter()
+                .any(|c| matches!(c, PeerCommand::ActionAck(_)))
+        );
+        assert!(actor.peer.is_none());
         Ok(())
     }
 }

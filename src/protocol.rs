@@ -23,9 +23,9 @@ pub const MAX_SESSION_FRAMES: usize = 65_536;
 pub const MAX_FILE_SIZE: u64 = 20 * 1024 * 1024;
 pub const MAX_FILE_CHUNK: usize = 8_192;
 pub const MAX_FILE_NAME: usize = 180;
-const CONTEXT: &[u8] = b"Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
-const MAGIC: &[u8; 5] = b"HUSH\x03";
-const VERSION: u8 = 3;
+const CONTEXT: &[u8] = b"Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
+const MAGIC: &[u8; 5] = b"HUSH\x04";
+const VERSION: u8 = 4;
 pub type MessageId = [u8; 16];
 pub type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -200,6 +200,16 @@ pub enum Event {
     Ack {
         id: MessageId,
     },
+    Action {
+        id: MessageId,
+        action: crate::conversation::Action,
+    },
+    ActionAck {
+        id: MessageId,
+    },
+    Typing {
+        active: bool,
+    },
     Closed,
     FileOffer {
         id: MessageId,
@@ -337,6 +347,10 @@ pub fn handshake<S: Read + Write>(
         received: HashSet::new(),
         pending_ack: HashSet::new(),
         awaiting_ack: HashSet::new(),
+        pending_action_ack: HashSet::new(),
+        awaiting_action_ack: HashSet::new(),
+        typing_sent: 0,
+        typing_received: 0,
         incoming_file: None,
         outgoing_file: None,
         cancelled_files: HashMap::new(),
@@ -378,7 +392,7 @@ pub fn security_fingerprint(first: &[u8; 32], second: &[u8; 32]) -> String {
         (second, first)
     };
     let mut hash = Sha256::new();
-    hash.update(b"Hushlink identity fingerprint\0v3\0");
+    hash.update(b"Hushlink identity fingerprint\0v4\0");
     hash.update(CONTEXT);
     hash.update(low);
     hash.update(high);
@@ -406,6 +420,10 @@ pub struct Session {
     received: HashSet<MessageId>,
     pending_ack: HashSet<MessageId>,
     awaiting_ack: HashSet<MessageId>,
+    pending_action_ack: HashSet<MessageId>,
+    awaiting_action_ack: HashSet<MessageId>,
+    typing_sent: u32,
+    typing_received: u32,
     incoming_file: Option<FileTransfer>,
     outgoing_file: Option<FileTransfer>,
     cancelled_files: HashMap<MessageId, CancelledFile>,
@@ -511,6 +529,51 @@ impl Session {
         let mut plaintext = Zeroizing::new(vec![VERSION, 4]);
         plaintext.extend_from_slice(&id);
         self.encrypt(&plaintext)
+    }
+
+    /// Application operations use a separate authenticated durable receipt.
+    pub fn send_action(
+        &mut self,
+        id: MessageId,
+        action: &crate::conversation::Action,
+    ) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        if self.sent.len() >= MAX_SESSION_MESSAGES {
+            return Err(ProtocolError::SessionLimit);
+        }
+        if self.sent.contains(&id) || self.received.contains(&id) {
+            return Err(ProtocolError::InvalidMessage);
+        }
+        let encoded = action.encode().map_err(|_| ProtocolError::InvalidMessage)?;
+        let mut plain = Zeroizing::new(vec![VERSION, 14]);
+        plain.extend_from_slice(&id);
+        plain.extend_from_slice(&encoded);
+        let frame = self.encrypt(&plain)?;
+        self.sent.insert(id);
+        self.awaiting_action_ack.insert(id);
+        Ok(frame)
+    }
+    pub fn acknowledge_action(&mut self, id: MessageId) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        if !self.pending_action_ack.remove(&id) {
+            return Err(ProtocolError::InvalidMessage);
+        }
+        let mut plain = Zeroizing::new(vec![VERSION, 15]);
+        plain.extend_from_slice(&id);
+        self.encrypt(&plain)
+    }
+    pub fn send_typing(&mut self, active: bool) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        let sequence = self
+            .typing_sent
+            .checked_add(1)
+            .ok_or(ProtocolError::SessionLimit)?;
+        let mut plain = vec![VERSION, 16];
+        plain.extend_from_slice(&sequence.to_be_bytes());
+        plain.push(u8::from(active));
+        let result = self.encrypt(&plain)?;
+        self.typing_sent = sequence;
+        Ok(result)
     }
 
     /// Announce metadata only. The receiver must consent before any file bytes
@@ -988,6 +1051,51 @@ impl Session {
                 }
                 Ok(Event::FileCancelAck { id })
             }
+            14 => {
+                self.ensure_ready()?;
+                if payload.len() < 33 || self.received.len() >= MAX_SESSION_MESSAGES {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let id = parse_id(&payload[..16])?;
+                if self.sent.contains(&id) || !self.received.insert(id) {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let action = crate::conversation::Action::decode(&payload[16..])
+                    .map_err(|_| ProtocolError::InvalidMessage)?;
+                self.pending_action_ack.insert(id);
+                Ok(Event::Action { id, action })
+            }
+            15 => {
+                self.ensure_ready()?;
+                let id = parse_id(payload)?;
+                if !self.awaiting_action_ack.remove(&id) {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                Ok(Event::ActionAck { id })
+            }
+            16 => {
+                self.ensure_ready()?;
+                if payload.len() != 5 || payload[4] > 1 {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let sequence = u32::from_be_bytes(
+                    payload[..4]
+                        .try_into()
+                        .map_err(|_| ProtocolError::InvalidMessage)?,
+                );
+                if sequence
+                    != self
+                        .typing_received
+                        .checked_add(1)
+                        .ok_or(ProtocolError::SessionLimit)?
+                {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                self.typing_received = sequence;
+                Ok(Event::Typing {
+                    active: payload[4] == 1,
+                })
+            }
             _ => Err(ProtocolError::InvalidMessage),
         }
     }
@@ -1000,6 +1108,8 @@ impl Session {
         self.received.clear();
         self.pending_ack.clear();
         self.awaiting_ack.clear();
+        self.awaiting_action_ack.clear();
+        self.pending_action_ack.clear();
         self.incoming_file = None;
         self.outgoing_file = None;
         self.cancelled_files.clear();
@@ -1256,6 +1366,13 @@ mod tests {
         assert!(matches!(a.receive(&hello).unwrap(), Event::Hello { name } if name == "Bär"));
         assert_eq!(a.check_contact(None).unwrap(), Trust::New);
         assert_eq!(b.check_contact(Some(a.local_key)).unwrap(), Trust::Known);
+    }
+    fn ready(a: &mut Session, b: &mut Session) {
+        introductions(a, b);
+        let confirm = a.confirm().unwrap();
+        b.receive(&confirm).unwrap();
+        let confirm = b.confirm().unwrap();
+        a.receive(&confirm).unwrap();
     }
     fn ready_pair() -> (Session, Session) {
         let (mut a, mut b) = pair();
@@ -2060,5 +2177,80 @@ mod tests {
         });
         assert!(handshake(&mut a, &identity, Role::Initiator).is_err());
         thread.join().unwrap();
+    }
+    #[test]
+    fn rich_operations_and_typing_require_trust_and_authenticated_receipts() {
+        use crate::conversation::Action;
+        let (mut a, mut b) = pair();
+        let action = Action::Reply {
+            target: hex::encode([4; 16]),
+            text: "Künstliche Antwort 🦀\nÄ".into(),
+        };
+        assert!(a.send_action([5; 16], &action).is_err());
+        assert!(a.send_typing(true).is_err());
+        ready(&mut a, &mut b);
+        let frame = a.send_action([5; 16], &action).unwrap();
+        assert!(
+            !frame
+                .windows("Künstliche".len())
+                .any(|w| w == "Künstliche".as_bytes())
+        );
+        assert!(matches!(b.receive(&frame).unwrap(),Event::Action{id,..} if id==[5;16]));
+        let ack = b.acknowledge_action([5; 16]).unwrap();
+        assert!(matches!(a.receive(&ack).unwrap(), Event::ActionAck { .. }));
+        assert!(a.send_action([5; 16], &action).is_err());
+        assert!(b.acknowledge_action([5; 16]).is_err());
+        assert!(matches!(
+            b.receive(&a.send_typing(true).unwrap()).unwrap(),
+            Event::Typing { active: true }
+        ));
+        assert!(matches!(
+            b.receive(&a.send_typing(false).unwrap()).unwrap(),
+            Event::Typing { active: false }
+        ));
+        a.abort();
+        assert!(a.send_typing(true).is_err());
+        assert!(a.send_action([6; 16], &action).is_err());
+    }
+    #[test]
+    fn malformed_replayed_and_premature_rich_controls_abort() {
+        use crate::conversation::Action;
+        let (mut a, mut b) = pair();
+        introductions(&mut a, &mut b);
+        let mut raw = vec![VERSION, 14];
+        raw.extend([5; 16]);
+        raw.extend(
+            Action::React {
+                target: hex::encode([4; 16]),
+                revision: 1,
+                reaction: "👍".into(),
+            }
+            .encode()
+            .unwrap()
+            .iter(),
+        );
+        assert!(b.receive(&a.encrypt(&raw).unwrap()).is_err());
+        assert!(b.is_closed());
+        for raw in [
+            vec![VERSION, 15],
+            vec![VERSION, 16, 0, 0, 0, 2, 1],
+            vec![VERSION, 16, 0, 0, 0, 1, 2],
+        ] {
+            let (mut a, mut b) = pair();
+            ready(&mut a, &mut b);
+            assert!(b.receive(&a.encrypt(&raw).unwrap()).is_err());
+            assert!(b.is_closed());
+        }
+        let (mut a, mut b) = pair();
+        ready(&mut a, &mut b);
+        let frame = a.send_typing(true).unwrap();
+        b.receive(&frame).unwrap();
+        assert!(b.receive(&frame).is_err());
+        let (mut a, mut b) = pair();
+        ready(&mut a, &mut b);
+        let mut raw = vec![VERSION, 14];
+        raw.extend([5; 16]);
+        raw.extend([9; 17]);
+        assert!(b.receive(&a.encrypt(&raw).unwrap()).is_err());
     }
 }

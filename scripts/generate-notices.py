@@ -81,6 +81,8 @@ for package in sorted(packages, key=lambda p: (p["name"], p["version"])):
             repo, filename = "brendanzab/gl-rs", "LICENSE"
         elif name == "clipboard-win":
             repo, filename = "DoumanAsh/clipboard-win", "LICENSE"
+        elif name.startswith("nokhwa"):
+            repo, filename = "l1npengtul/nokhwa", "LICENSE"
         elif name == "profiling":
             repo, filename = "aclysma/profiling", "LICENSE-MIT"
         else:
