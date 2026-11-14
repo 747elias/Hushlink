@@ -194,5 +194,5 @@ begin
       Result := False;
 end;
 
-; Deliberately no [UninstallDelete]: user-selected vaults, bootstrap settings and
-; other files not installed by this script must survive removal and updates.
+{ Deliberately no UninstallDelete section: user-selected vaults, bootstrap
+  settings and files not installed by this script survive removal and updates. }
