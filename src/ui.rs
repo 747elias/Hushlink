@@ -6,6 +6,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 mod features;
 mod integration;
+mod media;
 mod rich;
 use integration::{Integration, Picker};
 
@@ -111,6 +112,7 @@ fn configure(ctx: &egui::Context) {
 struct App {
     features: features::Features,
     rich: rich::Rich,
+    media: media::MediaUi,
     integration: Integration,
     runtime: Option<Runtime>,
     generation: u64,
@@ -141,6 +143,7 @@ impl App {
         Self {
             features: Default::default(),
             rich: Default::default(),
+            media: Default::default(),
             integration: Integration::new(ctx),
             runtime,
             generation,
@@ -190,6 +193,9 @@ impl App {
     fn clear_locked_ui(&mut self, ctx: &egui::Context) {
         self.features.clear();
         self.rich.zeroize();
+        self.media.clear();
+        self.rich.restore_source = None;
+        self.rich.restore_destination = None;
         self.integration.clear_sensitive();
         let path = std::mem::take(&mut self.view.vault_path);
         self.view = View::default();
@@ -301,6 +307,7 @@ impl App {
             ui.add_space(10.0);
             ui.label(RichText::new(&self.view.vault_path).small().color(MUTED));
             if ui.button("Speicherort und App-Einstellungen …").clicked() { self.settings_open = true; }
+            if ui.button("Verschlüsselte Sicherung wiederherstellen …").clicked(){self.rich.restore_open=true;}
             ui.label(RichText::new("Alle privaten Daten liegen in einer verschlüsselten Tresordatei. Nur Update-Prüfungen benötigen Internet und sind abschaltbar.").small().color(MUTED));
             ui.add_space(22.0);
             ui.label(RichText::new("Lokal gespeichert · Ende-zu-Ende verschlüsselt · Keine Telemetrie").small().color(MUTED));
@@ -448,6 +455,7 @@ impl App {
 
     fn chat(&mut self, ui: &mut egui::Ui) {
         self.rich.sync(self.selected.as_deref());
+        self.sync_media();
         ui.add_space(8.0);
         if let Some(pending) = &self.view.pending_incoming {
             let name = pending.name.clone();
@@ -482,6 +490,7 @@ impl App {
         {
             ui.group(|ui| {
                     ui.heading("Vergleicht euren Sicherheitscode");
+                    if ui.button("QR-Code und Kameravergleich …").clicked(){self.media.qr_open=true;}
                     ui.label(format!("Gegenstelle: {}", peer.name));
                     ui.label("Vergleicht alle Gruppen auf beiden PCs über einen unabhängigen Weg, zum Beispiel persönlich. Erst nach Bestätigung auf beiden Geräten wird der Chat freigegeben.");
                     ui.add_space(6.0);
@@ -562,6 +571,7 @@ impl App {
             {
                 self.pick(Picker::Send, ui.ctx());
             }
+            self.clipboard_button(ui, ready);
             if ui.button("Dateiübertragungen").clicked() {
                 self.integration.transfers_open = true;
             }
@@ -588,6 +598,7 @@ impl App {
         if !pending.is_empty() {
             ui.collapsing(format!("{} unbestätigte Änderungen",pending.len()),|ui|{ui.label("Nach einem Abbruch neu verbinden und erneut übertragen. Wiederholungen werden ohne doppelte Nachrichten bestätigt.");for id in &pending{if ui.add_enabled(ready,egui::Button::new(format!("Änderung {} erneut übertragen",&id[..8]))).clicked(){self.command(Command::RetryAction{id:id.clone()});}}});
         }
+        self.image_offer(ui);
         let composer_height = 165.0;
         let height = (ui.available_height() - composer_height).max(100.0);
         let mut has_messages = false;
@@ -689,6 +700,7 @@ impl App {
                     active: !self.composer.is_empty(),
                 });
             }
+            self.clipboard_paste(ui.ctx(), response.has_focus());
             let enter = response.has_focus() && ui.input_mut(take_plain_enter);
             let valid = !self.composer.trim().is_empty() && self.composer.len() <= MAX_TEXT;
             ui.horizontal(|ui| {
@@ -750,6 +762,8 @@ impl App {
             let mut minutes = self.view.inactivity_minutes.max(1);
             if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Min.")).changed() { self.command(Command::SetInactivity { minutes }); }
             ui.label(RichText::new("Beim Sperren der Windows-Sitzung wird Hushlink ebenfalls gesperrt. Offene Verbindungen werden beendet.").small().color(MUTED));
+            ui.separator();
+            self.storage_settings(ui);
             ui.separator();
             self.rich_settings(ui);
             ui.separator();
@@ -837,9 +851,11 @@ impl eframe::App for App {
                     .show(ui, |ui| self.auth(ui));
             });
         }
+        self.poll_media(ctx);
         self.settings(ctx);
         self.file_window(ctx);
         self.feature_windows(ctx);
+        self.backup_windows(ctx);
         if self.view.unlocked {
             self.edit_window(ctx);
         }

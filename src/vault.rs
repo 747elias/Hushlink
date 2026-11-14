@@ -1,5 +1,7 @@
 //! Versioned, authenticated local profile storage. No plaintext is written to disk.
 
+pub mod backups;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1208,7 +1210,7 @@ mod tests {
         vault.change_password(PASSWORD, OTHER_PASSWORD)?;
         drop(vault);
         let vault = Vault::open(&path, OTHER_PASSWORD)?;
-        assert_eq!(vault.profile().schema_version, 3);
+        assert_eq!(vault.profile().schema_version, PROFILE_SCHEMA_VERSION);
         assert_eq!(vault.profile().attachments[0].data, old.attachments[0].data);
         assert_eq!(vault.profile().identity_private, old.identity_private);
         assert_eq!(

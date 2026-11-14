@@ -11,4 +11,5 @@ pub mod updater;
 pub mod notifications;
 
 pub mod conversation;
+pub mod media;
 pub mod transfer_metrics;

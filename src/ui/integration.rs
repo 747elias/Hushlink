@@ -15,6 +15,9 @@ use std::{
 };
 
 pub(super) enum Picker {
+    BackupFolder,
+    RestoreSource,
+    RestoreDestination,
     Send,
     Export { id: String },
     OpenVault,
@@ -296,6 +299,17 @@ impl App {
                     }
                     if let Some(path) = path {
                         match &mut picker {
+                            Picker::BackupFolder => {
+                                self.command(Command::SetBackups {
+                                    folder: path.display().to_string(),
+                                    retention: self.view.backup_retention.max(1),
+                                    interval_minutes: self.view.backup_interval_minutes.max(5),
+                                });
+                            }
+                            Picker::RestoreSource => self.rich.restore_source = Some(path),
+                            Picker::RestoreDestination => {
+                                self.rich.restore_destination = Some(path)
+                            }
                             Picker::Send => {
                                 self.command(Command::SendFile { path });
                                 self.integration.transfers_open = true;
@@ -424,6 +438,17 @@ impl App {
         thread::spawn(move || {
             #[cfg(windows)]
             let path = match &picker {
+                Picker::BackupFolder => rfd::FileDialog::new()
+                    .set_title("Ordner für verschlüsselte Sicherungen")
+                    .pick_folder(),
+                Picker::RestoreSource => rfd::FileDialog::new()
+                    .set_title("Verschlüsselte Sicherungsdatei")
+                    .add_filter("Hushlink-Tresor", &["vault"])
+                    .pick_file(),
+                Picker::RestoreDestination => rfd::FileDialog::new()
+                    .set_title("Neuer freier Zielpfad für Wiederherstellung")
+                    .set_file_name("Hushlink-wiederhergestellt.vault")
+                    .save_file(),
                 Picker::Send => rfd::FileDialog::new()
                     .set_title("Datei senden (höchstens 20 MiB)")
                     .pick_file(),

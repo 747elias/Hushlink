@@ -34,6 +34,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 #[cfg(windows)]
 mod windows_lock;
 
+mod backups;
 mod rich;
 
 const COMMAND_CAPACITY: usize = 64;
@@ -41,6 +42,26 @@ const FRAME_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_NETWORK_FRAME: usize = protocol::MAX_FRAME;
 
 pub enum Command {
+    SetBackups {
+        folder: String,
+        retention: u8,
+        interval_minutes: u32,
+    },
+    BackupNow,
+    SendImage {
+        data: Zeroizing<Vec<u8>>,
+    },
+    RestoreBackup {
+        source: PathBuf,
+        destination: PathBuf,
+        password: Zeroizing<String>,
+    },
+    DeleteAttachment {
+        id: String,
+    },
+    DeleteMessage {
+        id: String,
+    },
     Conversation(crate::conversation::Action),
     RetryAction {
         id: String,
@@ -245,6 +266,12 @@ pub struct PartialView {
 }
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub backup_folder: String,
+    pub backup_retention: u8,
+    pub backup_interval_minutes: u32,
+    pub last_backup_ms: u64,
+    pub storage_bytes: u64,
+    pub attachment_bytes: u64,
     pub pending_actions: Vec<(String, String)>,
     pub share_typing: bool,
     pub peer_typing: bool,
@@ -448,7 +475,10 @@ impl Runtime {
             return Ok(());
         }
         let generation = self.hub.generation.load(Ordering::Acquire);
-        if matches!(command, Command::Create { .. } | Command::Unlock { .. }) {
+        if matches!(
+            command,
+            Command::Create { .. } | Command::Unlock { .. } | Command::RestoreBackup { .. }
+        ) {
             #[cfg(windows)]
             if !self.hub.watcher_ready.load(Ordering::Acquire)
                 || self.hub.os_locked.load(Ordering::Acquire)
@@ -638,6 +668,7 @@ enum PeerEvent {
         sha256: [u8; 32],
     },
     FileAccepted(protocol::MessageId),
+    FileResumed(protocol::MessageId, u64),
     FileChunk {
         id: protocol::MessageId,
         offset: u64,
@@ -676,6 +707,7 @@ impl Drop for PeerWorker {
 }
 
 struct Actor {
+    backup_checked: Option<Instant>,
     action_attempts: std::collections::HashSet<String>,
     peer_typing_since: Option<Instant>,
     local_typing_since: Option<Instant>,
@@ -745,6 +777,7 @@ impl Actor {
         view.minimize_to_tray = desktop_preferences.minimize_to_tray;
         view.automatic_updates = desktop_preferences.automatic_updates;
         Self {
+            backup_checked: None,
             action_attempts: Default::default(),
             peer_typing_since: None,
             local_typing_since: None,
@@ -821,6 +854,18 @@ impl Actor {
         self.view.inactivity_minutes = profile.settings.inactivity_minutes;
         self.view.notifications = profile.settings.notifications;
         self.view.share_typing = profile.settings.share_typing;
+        self.view
+            .backup_folder
+            .clone_from(&profile.settings.backup_folder);
+        self.view.backup_retention = profile.settings.backup_retention;
+        self.view.backup_interval_minutes = profile.settings.backup_interval_minutes;
+        self.view.last_backup_ms = profile.settings.last_backup_ms;
+        self.view.storage_bytes = std::fs::metadata(vault.path()).map_or(0, |m| m.len());
+        self.view.attachment_bytes = profile
+            .attachments
+            .iter()
+            .map(|a| a.data.len() as u64)
+            .sum();
         self.view.unknown_block_until_ms = profile.settings.unknown_block_until_ms;
         self.view.pending_actions = profile
             .pending_actions
@@ -939,6 +984,7 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.backup_checked = None;
         self.action_attempts.clear();
         self.peer_typing_since = None;
         self.local_typing_since = None;
@@ -999,6 +1045,7 @@ impl Actor {
                 self.clear();
             }
             self.enforce_idle_lock();
+            self.backup_if_due();
             if self.view.peer_typing
                 && self
                     .peer_typing_since
@@ -1165,6 +1212,28 @@ impl Actor {
                 self.vault = Some(result?);
                 self.after_unlock();
             }
+            Command::RestoreBackup {
+                source,
+                destination,
+                password,
+            } => {
+                anyhow::ensure!(self.vault.is_none(), "Zuerst den Tresor sperren.");
+                self.hub.sensitive.store(true, Ordering::Release);
+                self.emit(Event::Busy(true));
+                let result = vault::Vault::open(&*source, password.as_str());
+                self.emit(Event::Busy(false));
+                if !self.current() {
+                    return Ok(());
+                }
+                let backup = result?;
+                backup.backup_to_new(&*destination)?;
+                drop(backup);
+                storage_location::save(&self.default_path,destination).map_err(|_|anyhow::anyhow!("Die geprüfte Sicherung wurde am neuen Ziel gespeichert. Die Auswahl dieses Tresors ist fehlgeschlagen; bitte den neuen Speicherort manuell auswählen."))?;
+                self.path = destination.clone();
+                self.path_error = None;
+                self.clear();
+                self.view.status="Sicherung als neue Tresordatei wiederhergestellt. Mit dem damaligen Passwort entsperren.".into();
+            }
             Command::Lock => self.clear(),
             Command::Shutdown => {}
             _ => {
@@ -1213,6 +1282,43 @@ impl Actor {
     }
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::SetBackups {
+                folder,
+                retention,
+                interval_minutes,
+            } => self.configure_backups(folder, *retention, *interval_minutes)?,
+            Command::SendImage { data } => {
+                anyhow::ensure!(
+                    self.view.peer.as_ref().is_some_and(|p| p.ready),
+                    "Zuerst den Kontakt bestätigen."
+                );
+                anyhow::ensure!(
+                    data.len() <= vault::MAX_ATTACHMENT_BYTES
+                        && data.starts_with(b"\x89PNG\r\n\x1a\n"),
+                    "Ungültiger oder zu grosser Bildanhang."
+                );
+                anyhow::ensure!(
+                    self.file_loading.is_none()
+                        && !self.view.transfers.iter().any(|t| t.outgoing
+                            && matches!(
+                                t.state,
+                                FileTransferState::AwaitingConsent
+                                    | FileTransferState::Transferring
+                            )),
+                    "Es wird bereits eine Datei gesendet."
+                );
+                let sha256 = Sha256::digest(&*data).into();
+                self.peer_command(PeerCommand::OfferFile(PreparedFile {
+                    name: Zeroizing::new("Zwischenablage.png".into()),
+                    data: Arc::new(Zeroizing::new(std::mem::take(&mut **data))),
+                    sha256,
+                }))?;
+            }
+            Command::BackupNow => {
+                self.make_backup()?;
+            }
+            Command::DeleteAttachment { id } => self.delete_item(id, true)?,
+            Command::DeleteMessage { id } => self.delete_item(id, false)?,
             Command::Conversation(action) => self.queue_action(action.clone())?,
             Command::RetryAction { id } => self.retry_action(id)?,
             Command::Typing { active } => self.typing(*active)?,
@@ -1827,6 +1933,11 @@ impl Actor {
             return false;
         };
         let p = v.profile();
+        if p.action_receipts.iter().any(|r| r.id == id)
+            || p.pending_actions.iter().any(|a| a.id == id)
+        {
+            return false;
+        }
         if let Some(f) = p.partials.iter().find(|f| f.id == id) {
             return f.contact_id == peer.id
                 && f.name == name
@@ -2457,6 +2568,14 @@ impl Actor {
                         .messages
                         .iter()
                         .any(|m| m.id == hex::encode(id) && m.contact_id == peer.id)
+                        || v.profile()
+                            .action_receipts
+                            .iter()
+                            .any(|r| r.id == hex::encode(id))
+                        || v.profile()
+                            .pending_actions
+                            .iter()
+                            .any(|a| a.id == hex::encode(id))
                 }) {
                     self.disconnect("Doppelte Nachricht verworfen");
                     return;
@@ -2539,6 +2658,11 @@ impl Actor {
                 });
                 self.view.status = "Dateiangebot – Annahme ist erforderlich".into();
                 self.notify_peer();
+            }
+            PeerEvent::FileResumed(id, offset) => {
+                self.meters
+                    .insert(hex::encode(id), crate::transfer_metrics::Meter::new(offset));
+                self.transfer_progress(id, offset);
             }
             PeerEvent::FileAccepted(id) => {
                 self.meters
@@ -3229,7 +3353,7 @@ fn peer_loop(
                             let file = outgoing_file.as_mut().ok_or_else(|| anyhow::anyhow!("Fortsetzen ohne Dateiangebot."))?;
                             anyhow::ensure!(file.id == id, "Fortsetzung gehört nicht zur angebotenen Datei.");
                             file.offset = validated_resume_offset(&file.file.data, offset, prefix_sha256)?; file.accepted = true; file.activity = Instant::now();
-                            emit(PeerEvent::FileAccepted(id))?; emit(PeerEvent::FileProgress { id, transferred: offset })?;
+                            emit(PeerEvent::FileAccepted(id))?; emit(PeerEvent::FileResumed(id,offset))?;
                         }
                         protocol::Event::FileAccept { id } => {
                             let file = outgoing_file.as_mut().ok_or_else(|| anyhow::anyhow!("Dateiannahme ohne Angebot."))?;
