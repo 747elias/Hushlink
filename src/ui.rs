@@ -232,7 +232,7 @@ impl App {
                     }
                     if self.selected.as_ref().is_some_and(|id| {
                         !view.contacts.iter().any(|c| &c.id == id)
-                            && !view.peer.as_ref().is_some_and(|p| &p.id == id)
+                            && view.peer.as_ref().is_none_or(|p| &p.id != id)
                     }) {
                         self.selected.zeroize();
                         self.selected = None;
