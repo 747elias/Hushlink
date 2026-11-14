@@ -1,5 +1,21 @@
 # Prüfstand v0.4.0 – noch kein veröffentlichter Release
 
+
+Abschlussstand der Implementierung: `9cbf888e3f14156ba52c138a0588aa8a584a9308`.
+**102 lokale Tests und 105 Windows-Tests**, Format, strenges Clippy, RFCOMM-Probe,
+MSVC-Release-Build, PE-/Paketprüfung und sämtliche Start-/Installer-Smokes grün.
+[Exakter Windows-Lauf 43638437534](https://github.com/747elias/Hushlink/actions/runs/43638437534).
+App 15'707'136 Byte, Installer 7'798'353 Byte. Kamera-DLLs verzögert geladen,
+keine zusätzliche VC++-Laufzeit. Artefakte sind unsignierte Testbuilds.
+
+PowerShell-Signierschranke mit ausdrücklich leerer künstlicher Konfiguration
+negativ geprüft: stoppt vor dem Signieren. Veröffentlichung hängt von signierten
+Checks und Packaging ab; `contents: write` nur im Publish-Job. Kein v0.4-Tag,
+kein Release und keine legitime Signatur vorhanden. Dafür fehlt weiterhin die
+externe Dienst-/Identitätsfreigabe des Maintainers, siehe [SIGNING.md](SIGNING.md).
+Die folgenden Zwischenstände dokumentieren die Entwicklung; bei späteren reinen
+Dokumentationscommits bleibt deren aktueller Branch-CI-Lauf massgeblich.
+
 - Implementiert: Antworten, Bearbeitungen, Reaktionen, optionale Schreibanzeige,
   Suche/Pins, Stummschaltung/Anfragebegrenzung, Rate/Restzeit, Zwischenablage-PNG,
   QR/Kamera, optionaler kryptografisch gebundener Hello-Zugang, verschlüsselte

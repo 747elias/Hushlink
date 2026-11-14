@@ -20,14 +20,13 @@ werden beim erfolgreichen Speichern auf Profilschema 4 erweitert. Hello-Einricht
 verwendet Hülle 2. Vor der Migration eine verschlüsselte Kopie behalten;
 ältere Apps können neu gespeicherte Profile nicht öffnen.
 
-Prüfstatus: für `7336f17` 97 Linux- und 100 Windows-Tests sowie Format, Clippy,
-MSVC-Release-Build, echter EXE-Start, Installer/Tray/Autostart/Update-Übergabe und
-Deinstallation erfolgreich. Heruntergeladene CI-EXE/Setup/ZIP lokal auf PE,
-Prüfsummen und Commit geprüft. Der Folgecommit `3df3d1b` besteht mit 101 Linux-/104 Windows-Tests einschliesslich
-unabhängigem Medienabbruch und verzögerten Kamera-DLLs sowie allen nativen
-Start-/Installer-Prüfungen. Ein zusätzlicher Wiederherstellungstest ist erfolgreich;
-massgeblich für den aktuellen Branch ist
-[VALIDATION.md](VALIDATION.md) mit dem aktuellen Branch-CI-Lauf.
+Prüfstatus des Implementierungsabschlusses `9cbf888`: **102 Linux- und 105
+Windows-Tests** sowie Format, Clippy, RFCOMM-Probe, MSVC-Release-Build, echter
+EXE-Start, Installer/Tray/Autostart/Update-Übergabe und Deinstallation erfolgreich.
+Verzögerte optionale Kamera-DLLs, kein separater VC++-Runtime-Import, Schutz neuer
+Backups bei zurückgestellter Uhr und vollständiger Restore-Akteurtest geprüft.
+Heruntergeladene CI-EXE/Setup/ZIP auf PE, SHA-256, Commit und Identität geprüft;
+aktuelle Nachweise: [VALIDATION.md](VALIDATION.md).
 
 **Kein veröffentlichter v0.4-Release und keine Herausgebersignatur.** Der Nutzer
 hat noch kein Code-Signing-Zertifikat oder verifizierten Signierdienst.

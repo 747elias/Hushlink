@@ -31,3 +31,12 @@ Klartextmarker in Profil/Backup/Logs. Zusätzlicher Restore-Akteurtest erfolgrei
 Letzter Schutz verhindert Enter-Entsperren hinter dem Restore-/Einstellungsdialog.
 
 Abschlusskorrektur: Backup-Aufbewahrung schützt die soeben erzeugte Kopie auch bei rückgestellter Uhr (mit zuvor fehlgeschlagener Regression). CNG akzeptiert gemäss offizieller API ausschliesslich ERROR_SUCCESS (0). Erneuter gesamter Prüflauf erforderlich.
+
+Abschluss: Implementierung und alle verfügbaren automatischen Prüfungen für
+9cbf888 erfolgreich (102 Linux-/105 Windows-Tests; Windows-Lauf 43638437534,
+MSVC-EXE und tatsächliche Installer-Smokes). Dokumentation vollständig. Keine
+verdeckte Ersatzsignatur, kein v0.4-Tag/Release. Einzige verbleibende externe
+Veröffentlichungsschranke: autorisierter Signierdienst/Zertifikat samt Freigabe;
+physische Bluetooth-/Kamera-/Hello-/Windows-Sitzungsabnahme weiter offen und
+konkret dokumentiert. Nachfolgende Dokumentationscommits verändern diese
+Implementierung nicht und durchlaufen weiterhin die normale CI.
