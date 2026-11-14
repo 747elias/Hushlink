@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Version,
-    [Parameter(Mandatory=$true)][string]$Commit
+    [Parameter(Mandatory=$true)][string]$Commit,
+    [string]$Compiler = 'work/inno-setup/ISCC.exe'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -18,6 +19,14 @@ if ($LASTEXITCODE -ne 0) { throw 'PE validation failed' }
 $baseName = "Hushlink-$Version-windows-x64"
 New-Item -ItemType Directory -Force release-assets | Out-Null
 $stage = "package-stage/$baseName"
+if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+if (Test-Path -LiteralPath 'package-verification') { Remove-Item -LiteralPath 'package-verification' -Recurse -Force }
+foreach ($existing in (Get-ChildItem -LiteralPath release-assets -File)) {
+    if ($existing.Name -notin @("$baseName.exe", "$baseName-setup.exe", "$baseName.zip", 'SHA256SUMS.txt')) {
+        throw 'release-assets contains an unexpected file. Use a fresh generated output directory.'
+    }
+    Remove-Item -LiteralPath $existing.FullName -Force
+}
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item build-artifact/hushlink.exe "release-assets/$baseName.exe"
 Copy-Item build-artifact/hushlink.exe "$stage/$baseName.exe"
@@ -28,18 +37,25 @@ Copy-Item licenses "$stage/licenses" -Recurse
 Copy-Item docs "$stage/docs" -Recurse
 Copy-Item "docs/RELEASE-$Version.md" "$stage/RELEASE-NOTES.md"
 [IO.File]::WriteAllText("$pwd/$stage/BUILD-COMMIT.txt", "$Commit`n", [Text.UTF8Encoding]::new($false))
+$compilerPath = (Resolve-Path -LiteralPath $Compiler).Path
+if ((Get-Item -LiteralPath $compilerPath).VersionInfo.ProductVersion -notmatch '^7\.1\.1(?:\.0)?$') {
+    throw 'The release requires the pinned Inno Setup 7.1.1 compiler. Run installer/install-compiler.ps1.'
+}
+$payloadDirectory = (Resolve-Path -LiteralPath $stage).Path
+$outputDirectory = (Resolve-Path -LiteralPath release-assets).Path
+$numericVersion = [regex]::Match($packageVersion, '^\d+\.\d+\.\d+').Value
+& $compilerPath "/DAppVersion=$packageVersion" "/DNumericVersion=$numericVersion" "/DPayloadDirectory=$payloadDirectory" "/DOutputDirectory=$outputDirectory" "/DAssetBase=$baseName" installer/Hushlink.iss
+if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+python scripts/check-pe.py "release-assets/$baseName-setup.exe" --installer
+if ($LASTEXITCODE -ne 0) { throw 'Installer PE validation failed' }
+Copy-Item "release-assets/$baseName-setup.exe" "$stage/$baseName-setup.exe"
 Compress-Archive -Path "$stage/*" -DestinationPath "release-assets/$baseName.zip" -CompressionLevel Optimal
 $lines = @()
-foreach ($name in @("$baseName.exe", "$baseName.zip")) {
+foreach ($name in @("$baseName.exe", "$baseName-setup.exe", "$baseName.zip")) {
     $hash = (Get-FileHash "release-assets/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
     $lines += "$hash  $name"
 }
 [IO.File]::WriteAllText("$pwd/release-assets/SHA256SUMS.txt", ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
-# Independently re-read and verify the final assets, including ZIP's EXE.
-foreach ($line in (Get-Content release-assets/SHA256SUMS.txt)) {
-    $parts = $line -split '  ', 2
-    if ((Get-FileHash "release-assets/$($parts[1])" -Algorithm SHA256).Hash.ToLowerInvariant() -cne $parts[0]) { throw 'Checksum verification failed' }
-}
-Expand-Archive "release-assets/$baseName.zip" -DestinationPath package-verification
-if ((Get-FileHash "package-verification/$baseName.exe").Hash -cne (Get-FileHash "release-assets/$baseName.exe").Hash) { throw 'ZIP binary differs from standalone EXE' }
-Get-Content release-assets/SHA256SUMS.txt
+# Independently re-read final hashes, PE containers, ZIP binaries and commit.
+python scripts/verify-package.py --directory release-assets --tag $Version --commit $Commit
+if ($LASTEXITCODE -ne 0) { throw 'Release asset verification failed' }

@@ -29,9 +29,23 @@ jobs:
         with:
           name: windows-x64-${{ github.sha }}
           path: build-artifact
-      - name: Create and verify release assets
+      # Publish exactly the installer bytes that passed the required install smoke.
+      # Rebuilding it here would discard that evidence because timestamps can differ.
+      - name: Verify and reuse the exact checked release assets
         shell: pwsh
-        run: ./scripts/package.ps1 -Version "$env:GITHUB_REF_NAME" -Commit "$env:GITHUB_SHA"
+        run: |
+          $builtCommit = (Get-Content build-artifact/build-commit.txt -Raw).Trim()
+          if ($builtCommit -cne $env:GITHUB_SHA) { throw 'Build artifact commit mismatch' }
+          $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^\"]+)"\r?$').Groups[1].Value
+          if ($env:GITHUB_REF_NAME -cne "v$version") { throw 'Tag does not match Cargo.toml' }
+          if (-not (Test-Path "docs/RELEASE-$env:GITHUB_REF_NAME.md")) { throw 'Release notes are missing' }
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item build-artifact/release-assets/* release-assets/
+          python scripts/verify-package.py --directory release-assets --tag "$env:GITHUB_REF_NAME" --commit "$env:GITHUB_SHA"
+          if ($LASTEXITCODE -ne 0) { throw 'Checked release assets failed verification' }
+          if ((Get-FileHash "release-assets/Hushlink-v$version-windows-x64.exe").Hash -cne (Get-FileHash build-artifact/hushlink.exe).Hash) {
+            throw 'Release EXE differs from the exact checked app'
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ github.sha }}

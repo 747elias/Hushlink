@@ -2,11 +2,15 @@
 
 This validates the container, not hardware compatibility or code safety.
 """
+import argparse
 from pathlib import Path
 import struct
-import sys
 
-path = Path(sys.argv[1])
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("path", type=Path)
+parser.add_argument("--installer", action="store_true", help="allow a GUI x86 installer bootstrap as well as x64")
+args = parser.parse_args()
+path = args.path
 with path.open("rb") as handle:
     header = handle.read(64)
     if len(header) != 64 or header[:2] != b"MZ":
@@ -19,6 +23,10 @@ with path.open("rb") as handle:
     machine = struct.unpack_from("<H", pe, 4)[0]
     magic = struct.unpack_from("<H", pe, 24)[0]
     subsystem = struct.unpack_from("<H", pe, 24 + 68)[0]
-    if machine != 0x8664 or magic != 0x20B or subsystem != 2:
+    allowed = {(0x8664, 0x20B)}
+    if args.installer:
+        allowed.add((0x14C, 0x10B))
+    if (machine, magic) not in allowed or subsystem != 2:
         raise SystemExit(f"Expected x64 PE32+ Windows GUI; got {machine:#x}, {magic:#x}, {subsystem}")
-print(f"Verified x64 PE32+ Windows GUI executable: {path.name} ({path.stat().st_size} bytes)")
+kind = "x64 PE32+" if machine == 0x8664 else "x86 PE32 installer bootstrap"
+print(f"Verified {kind} Windows GUI executable: {path.name} ({path.stat().st_size} bytes)")
