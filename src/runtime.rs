@@ -4793,4 +4793,81 @@ mod tests {
         assert!(actor.view.share_typing && actor.view.unknown_block_until_ms == 0);
         Ok(())
     }
+    #[test]
+    fn restoring_a_backup_verifies_password_and_selects_a_new_vault_without_overwrite()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [41; 16],
+            text: Zeroizing::new("SYNTHETIC_RESTORED_HISTORY_04".into()),
+        });
+        let _ = commands.try_recv()?;
+        let original = actor.path.clone();
+        let backup = directory.path().join("synthetic-backup.vault");
+        actor
+            .vault
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("vault"))?
+            .backup_to_new(&backup)?;
+        actor.clear();
+        let original_bytes = std::fs::read(&original)?;
+        let destination = directory.path().join("restored.vault");
+        assert!(
+            actor
+                .command(&mut Command::RestoreBackup {
+                    source: backup.clone(),
+                    destination: destination.clone(),
+                    password: Zeroizing::new("incorrect-password".into())
+                })
+                .is_err()
+        );
+        assert!(!destination.exists());
+        assert_eq!(actor.path, original);
+        let occupied = directory.path().join("occupied.vault");
+        std::fs::write(&occupied, b"synthetic foreign bytes")?;
+        assert!(
+            actor
+                .command(&mut Command::RestoreBackup {
+                    source: backup.clone(),
+                    destination: occupied.clone(),
+                    password: Zeroizing::new("synthetic-password-123".into())
+                })
+                .is_err()
+        );
+        assert_eq!(std::fs::read(occupied)?, b"synthetic foreign bytes");
+        actor.command(&mut Command::RestoreBackup {
+            source: backup.clone(),
+            destination: destination.clone(),
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert_eq!(actor.path, destination);
+        assert!(!actor.view.unlocked && actor.view.profile_exists);
+        assert_eq!(std::fs::read(original)?, original_bytes);
+        assert!(backup.exists());
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert_eq!(actor.view.messages[0].text, "SYNTHETIC_RESTORED_HISTORY_04");
+        actor.clear();
+        let mut corrupt = std::fs::read(&backup)?;
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
+        let corrupt_path = directory.path().join("corrupt-backup.vault");
+        std::fs::write(&corrupt_path, &corrupt)?;
+        let rejected = directory.path().join("must-not-exist.vault");
+        assert!(
+            actor
+                .command(&mut Command::RestoreBackup {
+                    source: corrupt_path.clone(),
+                    destination: rejected.clone(),
+                    password: Zeroizing::new("synthetic-password-123".into())
+                })
+                .is_err()
+        );
+        assert!(!rejected.exists());
+        assert_eq!(std::fs::read(corrupt_path)?, corrupt);
+        Ok(())
+    }
 }

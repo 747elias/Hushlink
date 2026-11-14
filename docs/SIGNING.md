@@ -57,7 +57,7 @@ Die Kontokonfiguration kann mangels vorhandenen Dienstes noch nicht geprüft wer
 
 1. Normaler Push/PR: Format, Clippy, Tests, native App, Installer und Smoke-Prüfungen
    ohne Signierzugriff. Diese CI-Artefakte sind ausdrücklich Entwicklungsbuilds.
-2. Vor dem ersten Tag `Qualify signed Windows build` auf dem gewünschten Branch
+2. Nach Übernahme des Dispatch-Workflows in den GitHub-Standardbranch vor dem ersten Tag `Qualify signed Windows build` auf dem gewünschten Branch
    auslösen. Ohne vollständige Konfiguration scheitert der erste Schritt verständlich.
 3. Der signierte Ablauf führt dieselben Prüfungen aus, signiert die App, prüft mit
    Windows Authenticode und SDK-signtool Zertifikatskette, Code-Signing-EKU,

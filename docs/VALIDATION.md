@@ -8,7 +8,7 @@
 - Lokaler vollständiger Lauf für `7336f17`: **97 Tests erfolgreich**, Format und
   strenges Clippy. Zusätzliche Regressionen für Besitz/Revisionsbindung, spätes
   Retry nach Löschung, Bitmap-Leeren und unabhängige Native-Lock-Abbrüche sowie
-  Einstellungen/Rate-Limit ergänzen den aktuellen Satz auf **101 Linux-Tests**.
+  Einstellungen/Rate-Limit ergänzen den aktuellen Satz auf **101 Linux-Tests**; ein zusätzlicher Akteurtest prüft vollständige Wiederherstellung, falsches Passwort, belegtes Ziel und beschädigte Sicherung.
   Die endgültigen aktuellen Ergebnisse sind im Branch-CI-Lauf massgeblich.
 - Windows-Lauf [43634633664](https://github.com/747elias/Hushlink/actions/runs/43634633664)
   für `7336f17bebf2222eb6b03552418edf38f2e62ea1`: **100 Tests erfolgreich**, Format,
@@ -25,7 +25,13 @@
 - Reale Linux-X11-App mit ausdrücklich künstlichem separatem Tresor:
   Entsperren, Antwortverweise, Bearbeitungsmarkierung, Reaktionen, Suche/Pins,
   Speicherübersicht und automatische verschlüsselte Sicherung sichtbar geprüft.
-  Keine erfundene Funkverbindung. Finale Lock-/Klartextprüfung wird separat notiert.
+  Kontakt-Stummschaltung, erneutes Entsperren sowie Inaktivitäts- und Strg+L-Sperre mit geschlossenen privaten Dialogen geprüft. Profil, Backup und Logs enthalten keine eindeutigen künstlichen Klartextmarker; stdout/stderr sind leer. Keine erfundene Funkverbindung.
+- Windows-Lauf [43636751840](https://github.com/747elias/Hushlink/actions/runs/43636751840)
+  für `3df3d1bf3ef4967e44a208a9780797308bebc8b7`: **104 Tests**, MSVC-Release-
+  Build und vollständige Start-/Installer-Smokes erfolgreich. Die PE-Prüfung
+  bestätigt verzögerte Kamera-DLLs und keine separate VC++-Laufzeit. Native
+  Job-Objekte und vom UI unabhängige Sperrflags kompilieren/prüfen auf Windows.
+  Kamera- und Hello-Hardware wird dadurch weiterhin nicht nachgewiesen.
 - SignPath-Ablauf, App-/Setup-Signaturprüfung, Zertifikatsbindung im Updater und
   Windows-Prüfung tatsächlich veröffentlichter Downloads vorbereitet. Actionlint
   und PowerShell-Syntax prüfen die Konfiguration. **Keine echte Signatur:**

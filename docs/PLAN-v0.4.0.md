@@ -22,3 +22,10 @@ heruntergeladen und auf Commit/SHA/PE/ZIP geprüft. Linux 97 vollständige Tests
 Zusätzliche Rückfalltests, Native-Lock-Medienabbruch ohne UI-Frames, Kill-on-close-
 Kamerajob und verzögert geladene optionale Kamera-DLLs werden im letzten Lauf geprüft.
 Signatur/Veröffentlichung bleibt ausdrücklich wegen fehlendem externem Dienst offen.
+
+Abnahme fortgeschritten: 3df3d1b besteht mit 101 Linux- und 104 Windows-Tests;
+MSVC, optionale Kamera-Importtabellen und alle Installer-Smokes erfolgreich
+(43636751840). Echter Linux-UI-Test belegt Suche/Pins/Antwortverweise/Mute,
+Speicheransicht, Ciphertext-Backup, automatische und manuelle Sperre; keine
+Klartextmarker in Profil/Backup/Logs. Zusätzlicher Restore-Akteurtest erfolgreich.
+Letzter Schutz verhindert Enter-Entsperren hinter dem Restore-/Einstellungsdialog.

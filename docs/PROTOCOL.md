@@ -28,7 +28,7 @@ clones their keys or counters. Disconnect, lock, protocol error and
 reconnection discard the entire session. A reconnect always uses a fresh
 handshake. There is no cryptographic session resumption or transport fallback. Application file bytes may resume inside a completely fresh authenticated session as described below.
 
-The authenticated transport plaintext begins with version byte `03`, one type
+The authenticated transport plaintext begins with version byte `04`, one type
 byte, then the following payload. Integers below are unsigned big-endian.
 
 | Type | Payload | State and validation |
@@ -53,7 +53,7 @@ byte, then the following payload. Integers below are unsigned big-endian.
 Text limits count UTF-8 bytes, not characters. Newlines, umlauts and emoji are
 supported in chat. IDs come from the OS CSPRNG. Chat and file offers share an ID
 namespace across both directions: a received ID may not reuse a local ID or any
-previous received ID. Each direction allows at most 4096 new chat/file IDs and
+previous received ID. Each direction allows at most 4096 new chat/file/action IDs and
 65536 authenticated frames, including Hello, confirmations, chunks and controls.
 The separate frame budget permits multiple 20 MiB transfers without a chat-ID
 limit accidentally counting every chunk. These limits bound duplicate,

@@ -292,7 +292,7 @@ impl App {
                     ui.label(RichText::new("Mindestens 12 Zeichen. Verwende möglichst eine lange, einzigartige Passphrase.").small().color(MUTED));
                     ui.label(RichText::new("Ohne Wiederherstellung: Ein vergessenes Passwort bedeutet den Verlust deines Profils und Verlaufs.").color(Color32::from_rgb(237, 194, 131)));
                 }
-                let enter = ui.input_mut(take_plain_enter);
+                let enter = !self.rich.restore_open && !self.settings_open && ui.input_mut(take_plain_enter);
                 if ui.add_sized([width, 42.0], egui::Button::new(if existing { "Entsperren" } else { "Profil erstellen" }).fill(Color32::from_rgb(26, 85, 73))).clicked() || enter {
                     if !existing && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.name.chars().any(char::is_control) || self.password.chars().count() < 12 || *self.password != *self.confirmation) {
                         self.error = "Bitte gib einen Namen (höchstens 80 UTF-8-Bytes) und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();

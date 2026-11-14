@@ -23,8 +23,10 @@ verwendet Hülle 2. Vor der Migration eine verschlüsselte Kopie behalten;
 Prüfstatus: für `7336f17` 97 Linux- und 100 Windows-Tests sowie Format, Clippy,
 MSVC-Release-Build, echter EXE-Start, Installer/Tray/Autostart/Update-Übergabe und
 Deinstallation erfolgreich. Heruntergeladene CI-EXE/Setup/ZIP lokal auf PE,
-Prüfsummen und Commit geprüft. Weitere Regressionen und verzögert geladene
-optionale Kamera-DLLs sind im nachfolgenden Prüflauf enthalten; massgeblich ist
+Prüfsummen und Commit geprüft. Der Folgecommit `3df3d1b` besteht mit 101 Linux-/104 Windows-Tests einschliesslich
+unabhängigem Medienabbruch und verzögerten Kamera-DLLs sowie allen nativen
+Start-/Installer-Prüfungen. Ein zusätzlicher Wiederherstellungstest ist erfolgreich;
+massgeblich für den aktuellen Branch ist
 [VALIDATION.md](VALIDATION.md) mit dem aktuellen Branch-CI-Lauf.
 
 **Kein veröffentlichter v0.4-Release und keine Herausgebersignatur.** Der Nutzer
