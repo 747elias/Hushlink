@@ -19,19 +19,31 @@ const BASE_HEADER_LEN: usize = 92;
 const WRAPPED_KEY_LEN: usize = 48;
 const HEADER_LEN: usize = BASE_HEADER_LEN + WRAPPED_KEY_LEN;
 const TAG_LEN: usize = 16;
-pub const MAX_VAULT_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_VAULT_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const MAX_MESSAGES: usize = 10_000;
 pub const MAX_CONTACTS: usize = 500;
+pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
+pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 80 * 1024 * 1024;
+pub const MAX_ATTACHMENTS: usize = 1_000;
+const PROFILE_SCHEMA_VERSION: u16 = 2;
+
+fn legacy_schema_version() -> u16 {
+    1
+}
 
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
+    #[serde(default = "legacy_schema_version")]
+    pub schema_version: u16,
     pub display_name: String,
     pub identity_private: [u8; 32],
     pub identity_public: [u8; 32],
     pub contacts: Vec<Contact>,
     pub messages: Vec<StoredMessage>,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub settings: Settings,
 }
 
@@ -42,11 +54,13 @@ impl Profile {
         identity_public: [u8; 32],
     ) -> Self {
         Self {
+            schema_version: PROFILE_SCHEMA_VERSION,
             display_name,
             identity_private,
             identity_public,
             contacts: Vec::new(),
             messages: Vec::new(),
+            attachments: Vec::new(),
             settings: Settings::default(),
         }
     }
@@ -70,6 +84,51 @@ pub struct StoredMessage {
     pub timestamp_ms: u64,
     pub outgoing: bool,
     pub status: MessageStatus,
+    #[serde(default)]
+    pub attachment_id: Option<String>,
+}
+
+/// Attachment bytes remain inside the same authenticated encrypted file as the
+/// identity and conversation. Exporting is an explicit user action in the actor.
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
+pub struct Attachment {
+    pub id: String,
+    pub contact_id: String,
+    pub name: String,
+    #[serde(with = "attachment_bytes")]
+    pub data: Vec<u8>,
+    pub sha256: [u8; 32],
+    pub outgoing: bool,
+    pub timestamp_ms: u64,
+}
+
+mod attachment_bytes {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+    use zeroize::Zeroizing;
+
+    use super::MAX_ATTACHMENT_BYTES;
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        let encoded = Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(bytes));
+        serializer.serialize_str(&encoded)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        let encoded = Zeroizing::new(String::deserialize(deserializer)?);
+        if encoded.len() > MAX_ATTACHMENT_BYTES.div_ceil(3) * 4 {
+            return Err(D::Error::custom("attachment is too large"));
+        }
+        let mut decoded = Zeroizing::new(Vec::with_capacity(encoded.len() / 4 * 3));
+        base64::engine::general_purpose::STANDARD
+            .decode_vec(encoded.as_bytes(), &mut decoded)
+            .map_err(|_| D::Error::custom("invalid attachment encoding"))?;
+        if decoded.len() > MAX_ATTACHMENT_BYTES {
+            return Err(D::Error::custom("attachment is too large"));
+        }
+        Ok(std::mem::take(&mut *decoded))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -91,12 +150,25 @@ impl Zeroize for MessageStatus {
 pub struct Settings {
     /// Minutes until inactivity locking, in the inclusive range 1..=120.
     pub inactivity_minutes: u32,
+    #[serde(default = "enabled_by_default")]
+    pub start_with_windows: bool,
+    #[serde(default = "enabled_by_default")]
+    pub minimize_to_tray: bool,
+    #[serde(default = "enabled_by_default")]
+    pub automatic_updates: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             inactivity_minutes: 5,
+            start_with_windows: true,
+            minimize_to_tray: true,
+            automatic_updates: true,
         }
     }
 }
@@ -117,6 +189,10 @@ pub enum VaultError {
         "Die Tresordatei wurde ausserhalb dieser Sitzung geändert. Bitte sperren und erneut öffnen."
     )]
     Conflict,
+    #[error(
+        "Der neue Speicherort ist aktiv; die alte verschlüsselte Datei konnte nicht entfernt werden. Bitte die alte Datei nach eigener Prüfung löschen."
+    )]
+    RelocationCleanup,
     #[error("Bitte mindestens 12 Zeichen als Passwort verwenden.")]
     PasswordTooShort,
     #[error("Das Passwort darf höchstens 1’024 UTF-8-Byte lang sein.")]
@@ -129,6 +205,8 @@ pub enum VaultError {
     Limit,
     #[error("Kryptografische Verarbeitung ist fehlgeschlagen.")]
     Crypto,
+    #[error("Die gespeicherte App-Konfiguration ist beschädigt oder wird nicht unterstützt: {0}")]
+    Configuration(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, VaultError>;
@@ -262,12 +340,14 @@ pub struct Vault {
     key: Zeroizing<[u8; 32]>,
     envelope: Envelope,
     expected_digest: [u8; 32],
+    relocation_uncertain: bool,
     // Persistent lock-file inode: do not unlink it while other processes can hold it.
     _lock_file: File,
 }
 
 impl Vault {
-    pub fn create(path: impl AsRef<Path>, password: &str, profile: Profile) -> Result<Self> {
+    pub fn create(path: impl AsRef<Path>, password: &str, mut profile: Profile) -> Result<Self> {
+        profile.schema_version = PROFILE_SCHEMA_VERSION;
         validate_new_password(password)?;
         validate_profile(&profile)?;
         let path = path.as_ref().to_path_buf();
@@ -288,6 +368,7 @@ impl Vault {
             key,
             envelope,
             expected_digest: digest(&bytes),
+            relocation_uncertain: false,
             _lock_file: lock_file,
         })
     }
@@ -305,6 +386,7 @@ impl Vault {
             key,
             envelope,
             expected_digest: digest(&bytes),
+            relocation_uncertain: false,
             _lock_file: lock_file,
         })
     }
@@ -317,9 +399,14 @@ impl Vault {
         &mut self.profile
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// Encrypt and atomically persist changes. Changes made outside this instance
     /// are detected and left untouched. A failed save leaves the last file intact.
     pub fn save(&mut self) -> Result<()> {
+        self.profile.schema_version = PROFILE_SCHEMA_VERSION;
         validate_profile(&self.profile)?;
         let envelope = update_body(&self.envelope, &self.key, &self.profile)?;
         self.persist(envelope)
@@ -331,11 +418,86 @@ impl Vault {
         validate_new_password(new_password)?;
         // Authentication of the old key wrap is necessary even while unlocked.
         let _verified_key = self.envelope.unwrap_key(old_password)?;
+        self.profile.schema_version = PROFILE_SCHEMA_VERSION;
         let envelope = new_envelope(new_password, &self.key, &self.profile)?;
         self.persist(envelope)
     }
 
+    /// Move only authenticated ciphertext to a new, unused path. The destination
+    /// is durably written and locked before the old file can be removed.
+    pub fn relocate(&mut self, destination: impl AsRef<Path>) -> Result<()> {
+        self.relocate_with(destination.as_ref(), |_| Ok(()))
+    }
+
+    /// Commit the app's locator only once the ciphertext destination is durable.
+    /// A crash before committing retains the old location; a crash after it can
+    /// leave two encrypted copies, never a locator without a complete vault.
+    pub(crate) fn relocate_with(
+        &mut self,
+        destination: &Path,
+        commit_location: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<()> {
+        if self.relocation_uncertain {
+            return Err(VaultError::Conflict);
+        }
+        if destination == self.path {
+            return commit_location(destination);
+        }
+        if destination.file_name().is_none() {
+            return Err(VaultError::Format("ungültiger Zielpfad"));
+        }
+        let parent = destination
+            .parent()
+            .ok_or(VaultError::Format("ungültiger Zielpfad"))?;
+        fs::create_dir_all(parent)?;
+        let destination_lock = lock_file(destination)?;
+        if destination.try_exists()? {
+            return Err(VaultError::AlreadyExists);
+        }
+        // Persist any pending in-memory changes with a fresh nonce first. A
+        // conflict or damaged source aborts before creating the destination.
+        self.save()?;
+        verify_current(&self.path, Some(self.expected_digest))?;
+        let bytes = bounded_read(&self.path)?;
+        if digest(&bytes) != self.expected_digest {
+            return Err(VaultError::Conflict);
+        }
+        atomic_write(destination, &bytes, None)?;
+        verify_current(&self.path, Some(self.expected_digest))?;
+        verify_current(destination, Some(self.expected_digest))?;
+        // A failed atomic locator save can mean that replacement succeeded but
+        // the final durability flush failed. Keep BOTH complete ciphertext files
+        // on every callback error; deleting the destination could leave a locator
+        // pointing at a missing file. Until reopening, disallow further saves to
+        // the old copy because the locator may already select the new one.
+        self.relocation_uncertain = true;
+        commit_location(destination)?;
+        verify_current(destination, Some(self.expected_digest))?;
+        let old_path = std::mem::replace(&mut self.path, destination.to_path_buf());
+        // Keep the source lock held until deletion has completed. Another app
+        // instance must not start writing the old file between commit and cleanup.
+        let _source_lock = std::mem::replace(&mut self._lock_file, destination_lock);
+        self.relocation_uncertain = false;
+        if verify_current(&old_path, Some(self.expected_digest)).is_err()
+            || fs::remove_file(&old_path).is_err()
+        {
+            return Err(VaultError::RelocationCleanup);
+        }
+        #[cfg(unix)]
+        if let Some(parent) = old_path.parent()
+            && File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .is_err()
+        {
+            return Err(VaultError::RelocationCleanup);
+        }
+        Ok(())
+    }
+
     fn persist(&mut self, envelope: Envelope) -> Result<()> {
+        if self.relocation_uncertain {
+            return Err(VaultError::Conflict);
+        }
         let bytes = envelope.encode();
         atomic_write(&self.path, &bytes, Some(self.expected_digest))?;
         self.expected_digest = digest(&bytes);
@@ -358,9 +520,12 @@ fn validate_profile(profile: &Profile) -> Result<()> {
     fn valid_name(name: &str) -> bool {
         !name.trim().is_empty() && name.len() <= 80 && !name.chars().any(char::is_control)
     }
-    if !valid_name(&profile.display_name)
+    if !(1..=PROFILE_SCHEMA_VERSION).contains(&profile.schema_version)
+        || (profile.schema_version == 1 && !profile.attachments.is_empty())
+        || !valid_name(&profile.display_name)
         || profile.contacts.len() > MAX_CONTACTS
         || profile.messages.len() > MAX_MESSAGES
+        || profile.attachments.len() > MAX_ATTACHMENTS
         || !(1..=120).contains(&profile.settings.inactivity_minutes)
     {
         return Err(VaultError::InvalidProfile);
@@ -375,17 +540,94 @@ fn validate_profile(profile: &Profile) -> Result<()> {
             return Err(VaultError::InvalidProfile);
         }
     }
-    for message in &profile.messages {
+    for (index, message) in profile.messages.iter().enumerate() {
         if message.id.is_empty()
             || message.id.len() > 128
             || message.text.is_empty()
             || message.text.len() > MAX_MESSAGE_BYTES
             || !profile.contacts.iter().any(|c| c.id == message.contact_id)
+            || profile.messages[..index]
+                .iter()
+                .any(|other| other.id == message.id && other.contact_id == message.contact_id)
+            || message.attachment_id.as_ref().is_some_and(|id| {
+                !profile.attachments.iter().any(|attachment| {
+                    attachment.id == *id
+                        && attachment.contact_id == message.contact_id
+                        && attachment.outgoing == message.outgoing
+                })
+            })
+        {
+            return Err(VaultError::InvalidProfile);
+        }
+    }
+    let mut total_bytes = 0_usize;
+    for (index, attachment) in profile.attachments.iter().enumerate() {
+        total_bytes = total_bytes
+            .checked_add(attachment.data.len())
+            .ok_or(VaultError::Limit)?;
+        if attachment.data.len() > MAX_ATTACHMENT_BYTES || total_bytes > MAX_TOTAL_ATTACHMENT_BYTES
+        {
+            return Err(VaultError::Limit);
+        }
+        if attachment.id.is_empty()
+            || attachment.id.len() > 128
+            || !valid_attachment_name(&attachment.name)
+            || digest(&attachment.data) != attachment.sha256
+            || !profile
+                .contacts
+                .iter()
+                .any(|c| c.id == attachment.contact_id)
+            || profile.attachments[..index]
+                .iter()
+                .any(|other| other.id == attachment.id)
+            || profile
+                .messages
+                .iter()
+                .filter(|message| {
+                    message.attachment_id.as_ref() == Some(&attachment.id)
+                        && message.contact_id == attachment.contact_id
+                        && message.outgoing == attachment.outgoing
+                })
+                .count()
+                != 1
         {
             return Err(VaultError::InvalidProfile);
         }
     }
     Ok(())
+}
+
+pub fn valid_attachment_name(name: &str) -> bool {
+    if name.trim().is_empty()
+        || name.len() > 180
+        || name.ends_with([' ', '.'])
+        || name.chars().any(|character| {
+            character.is_control()
+                || "<>:\"/\\|?*".contains(character)
+                || matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+    {
+        return false;
+    }
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let numbered_device = base
+        .strip_prefix("COM")
+        .or_else(|| base.strip_prefix("LPT"))
+        .is_some_and(|number| {
+            matches!(
+                number,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        });
+    !matches!(
+        base.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) && !numbered_device
 }
 
 fn derive_key(
@@ -529,7 +771,8 @@ fn private_open_options() -> OpenOptions {
     options
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], expected: Option<[u8; 32]>) -> Result<()> {
+/// Durable same-directory replacement for ciphertext and non-secret bootstrap data.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], expected: Option<[u8; 32]>) -> Result<()> {
     verify_current(path, expected)?;
     let parent = path.parent().ok_or(VaultError::Format("ungültiger Pfad"))?;
     let mut random = [0; 16];
@@ -546,7 +789,8 @@ fn atomic_write(path: &Path, bytes: &[u8], expected: Option<[u8; 32]>) -> Result
         File::open(parent)?.sync_all()?;
         Ok(())
     })();
-    // Temporary files contain ciphertext only, and are never used as recovery input.
+    // Temporary files contain ciphertext or non-secret bootstrap settings only.
+    // They are never used automatically as recovery input.
     if operation.is_ok() && temp_path.exists() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -640,9 +884,358 @@ mod tests {
             timestamp_ms: 1_700_000_000_000,
             outgoing: true,
             status: MessageStatus::Received,
+            attachment_id: None,
         });
         profile.contacts.push(contact);
         profile
+    }
+
+    fn profile_with_attachment() -> Profile {
+        let mut profile = profile();
+        let data = b"HUSHLINK_SYNTHETIC_ATTACHMENT_SECRET_40837\0\xff\n".to_vec();
+        let id = "synthetic-file-1".to_owned();
+        let contact_id = profile.contacts[0].id.clone();
+        profile.messages.push(StoredMessage {
+            id: id.clone(),
+            contact_id: contact_id.clone(),
+            text: "Künstliche Datei Ä🦊.bin".into(),
+            timestamp_ms: 1_700_000_000_001,
+            outgoing: false,
+            status: MessageStatus::Received,
+            attachment_id: Some(id.clone()),
+        });
+        profile.attachments.push(Attachment {
+            id,
+            contact_id,
+            name: "Künstliche Datei Ä🦊.bin".into(),
+            sha256: digest(&data),
+            data,
+            outgoing: false,
+            timestamp_ms: 1_700_000_000_001,
+        });
+        profile
+    }
+
+    #[test]
+    fn attachment_roundtrip_and_password_change_keep_one_encrypted_file() -> TestResult {
+        use base64::Engine;
+
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("all-in-one.vault");
+        let profile = profile_with_attachment();
+        let expected_data = Zeroizing::new(profile.attachments[0].data.clone());
+        let encoded_data =
+            Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(&expected_data));
+        let mut vault = Vault::create(&path, PASSWORD, profile)?;
+        vault.change_password(PASSWORD, OTHER_PASSWORD)?;
+        drop(vault);
+        for entry in fs::read_dir(directory.path())? {
+            let bytes = fs::read(entry?.path())?;
+            for secret in [
+                expected_data.as_slice(),
+                encoded_data.as_bytes(),
+                "Künstliche Datei Ä🦊.bin".as_bytes(),
+                MARKER.as_bytes(),
+                PASSWORD.as_bytes(),
+                OTHER_PASSWORD.as_bytes(),
+            ] {
+                assert!(!bytes.windows(secret.len()).any(|window| window == secret));
+            }
+        }
+        let vault = Vault::open(&path, OTHER_PASSWORD)?;
+        assert_eq!(vault.profile().schema_version, PROFILE_SCHEMA_VERSION);
+        assert_eq!(vault.profile().attachments.len(), 1);
+        assert_eq!(vault.profile().attachments[0].data, *expected_data);
+        assert_eq!(
+            vault.profile().attachments[0].sha256,
+            digest(&expected_data)
+        );
+        assert_eq!(
+            vault.profile().messages[1].attachment_id.as_deref(),
+            Some("synthetic-file-1")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_v01_profile_migrates_without_losing_identity_or_history() -> TestResult {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("old-profile.vault");
+        let old_profile = profile();
+        let key = Zeroizing::new([0x43; 32]);
+        let mut envelope = new_envelope(PASSWORD, &key, &old_profile)?;
+        let mut legacy = serde_json::to_value(&old_profile)?;
+        let object = legacy.as_object_mut().ok_or("synthetic object missing")?;
+        object.remove("schema_version");
+        object.remove("attachments");
+        let settings = object
+            .get_mut("settings")
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or("synthetic settings missing")?;
+        settings.remove("start_with_windows");
+        settings.remove("minimize_to_tray");
+        settings.remove("automatic_updates");
+        let message = object
+            .get_mut("messages")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|messages| messages.first_mut())
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or("synthetic message missing")?;
+        message.remove("attachment_id");
+        let plain = Zeroizing::new(serde_json::to_vec(&legacy)?);
+        let length = (plain.len() + TAG_LEN) as u32;
+        envelope.header[88..92].copy_from_slice(&length.to_le_bytes());
+        let legacy_envelope = encrypt_body(envelope.header, &key, &plain)?;
+        fs::write(&path, legacy_envelope.encode())?;
+        let mut vault = Vault::open(&path, PASSWORD)?;
+        assert_eq!(vault.profile().schema_version, 1);
+        assert!(vault.profile().attachments.is_empty());
+        assert!(vault.profile().messages[0].attachment_id.is_none());
+        assert_eq!(vault.profile().messages[0].text, MARKER);
+        assert_eq!(vault.profile().identity_private, [0x31; 32]);
+        assert!(vault.profile().settings.start_with_windows);
+        assert!(vault.profile().settings.minimize_to_tray);
+        assert!(vault.profile().settings.automatic_updates);
+        vault.save()?;
+        assert_eq!(vault.profile().schema_version, PROFILE_SCHEMA_VERSION);
+        drop(vault);
+        let vault = Vault::open(&path, PASSWORD)?;
+        assert_eq!(vault.profile().schema_version, PROFILE_SCHEMA_VERSION);
+        assert_eq!(vault.profile().messages[0].text, MARKER);
+        assert_eq!(vault.profile().identity_private, [0x31; 32]);
+        Ok(())
+    }
+
+    #[test]
+    fn relocation_commits_only_durable_ciphertext_and_keeps_destination_locked() -> TestResult {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("source.vault");
+        let destination = directory.path().join("new location/Änne 🔒.vault");
+        let mut vault = Vault::create(&source, PASSWORD, profile_with_attachment())?;
+        vault.relocate_with(&destination, |path| {
+            assert_eq!(path, destination);
+            assert!(source.exists());
+            assert_eq!(fs::read(&source)?, fs::read(path)?);
+            assert!(matches!(
+                Vault::open(path, PASSWORD),
+                Err(VaultError::InUse)
+            ));
+            Ok(())
+        })?;
+        assert_eq!(vault.path(), destination);
+        assert!(!source.exists());
+        assert!(destination.exists());
+        assert!(matches!(
+            Vault::open(&destination, PASSWORD),
+            Err(VaultError::InUse)
+        ));
+        drop(vault);
+        let vault = Vault::open(&destination, PASSWORD)?;
+        assert_eq!(vault.profile().messages[0].text, MARKER);
+        assert_eq!(vault.profile().attachments.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn relocation_never_overwrites_and_preserves_both_after_uncertain_locator_commit() -> TestResult
+    {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("source.vault");
+        let destination = directory.path().join("destination.vault");
+        let mut vault = Vault::create(&source, PASSWORD, profile())?;
+        let source_bytes = fs::read(&source)?;
+        fs::write(&destination, b"synthetic foreign file")?;
+        assert!(matches!(
+            vault.relocate(&destination),
+            Err(VaultError::AlreadyExists)
+        ));
+        assert_eq!(fs::read(&destination)?, b"synthetic foreign file");
+        assert_eq!(fs::read(&source)?, source_bytes);
+        fs::remove_file(&destination)?;
+        assert!(matches!(
+            vault.relocate_with(&destination, |_| Err(VaultError::Configuration(
+                "synthetic failure"
+            ))),
+            Err(VaultError::Configuration(_))
+        ));
+        assert_eq!(vault.path(), source);
+        assert!(source.exists());
+        assert!(destination.exists());
+        assert_eq!(fs::read(&source)?, fs::read(&destination)?);
+        assert!(matches!(vault.save(), Err(VaultError::Conflict)));
+        drop(vault);
+        assert_eq!(
+            Vault::open(&source, PASSWORD)?.profile().messages[0].text,
+            MARKER
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn relocation_preserves_external_changes_and_reports_active_new_location() -> TestResult {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("source.vault");
+        let destination = directory.path().join("destination.vault");
+        let mut vault = Vault::create(&source, PASSWORD, profile())?;
+        assert!(matches!(
+            vault.relocate_with(&destination, |_| {
+                fs::write(&destination, b"synthetic changed destination")?;
+                Err(VaultError::Configuration("synthetic failure"))
+            }),
+            Err(VaultError::Configuration(_))
+        ));
+        assert_eq!(fs::read(&destination)?, b"synthetic changed destination");
+        assert_eq!(vault.path(), source);
+        assert!(matches!(vault.save(), Err(VaultError::Conflict)));
+        drop(vault);
+        fs::remove_file(&destination)?;
+        let mut vault = Vault::open(&source, PASSWORD)?;
+        assert!(matches!(
+            vault.relocate_with(&destination, |_| {
+                fs::write(&source, b"synthetic changed source")?;
+                Ok(())
+            }),
+            Err(VaultError::RelocationCleanup)
+        ));
+        assert_eq!(vault.path(), destination);
+        assert_eq!(fs::read(&source)?, b"synthetic changed source");
+        vault.save()?;
+        drop(vault);
+        assert_eq!(
+            Vault::open(&destination, PASSWORD)?.profile().messages[0].text,
+            MARKER
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn attachment_links_hashes_names_and_sizes_are_validated() -> TestResult {
+        let profile = profile_with_attachment();
+        assert!(validate_profile(&profile).is_ok());
+        let mut invalid = profile.clone();
+        invalid.attachments[0].data[0] ^= 0x01;
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        invalid.messages[1].attachment_id = Some("missing".into());
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        invalid.messages[1].outgoing = true;
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        invalid.messages.pop();
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        let mut repeated_reference = invalid.messages[1].clone();
+        repeated_reference.id = "synthetic-second-reference".into();
+        invalid.messages.push(repeated_reference);
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        let mut contact = invalid.contacts[0].clone();
+        contact.identity_key = [0x19; 32];
+        contact.id = hex::encode(contact.identity_key);
+        let mut attachment = invalid.attachments[0].clone();
+        attachment.contact_id = contact.id.clone();
+        let mut message = invalid.messages[1].clone();
+        message.contact_id = contact.id.clone();
+        invalid.contacts.push(contact);
+        invalid.messages.push(message);
+        invalid.attachments.push(attachment);
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        let mut invalid = profile.clone();
+        invalid.schema_version = PROFILE_SCHEMA_VERSION + 1;
+        assert!(matches!(
+            validate_profile(&invalid),
+            Err(VaultError::InvalidProfile)
+        ));
+        for name in [
+            "..",
+            "a/b",
+            "a\\b",
+            "hidden:stream",
+            "CON.txt",
+            "CON .txt",
+            "COM¹.bin",
+            "LPT²",
+            "CONIN$",
+            "hidden\u{202e}.exe",
+            "a. ",
+            "nul\0.bin",
+            "AUX",
+            "x\n.bin",
+        ] {
+            assert!(!valid_attachment_name(name));
+        }
+        assert!(valid_attachment_name("Grüsse 🦊.txt"));
+        // A validly sized field with invalid base64 also fails deserialization.
+        let mut encoded = serde_json::to_value(&profile.attachments[0])?;
+        encoded["data"] = serde_json::Value::String("%%%".into());
+        assert!(serde_json::from_value::<Attachment>(encoded).is_err());
+        assert!(!valid_attachment_name(&"x".repeat(181)));
+        let mut invalid = profile;
+        invalid.attachments[0].data = vec![0; MAX_ATTACHMENT_BYTES + 1];
+        assert!(matches!(validate_profile(&invalid), Err(VaultError::Limit)));
+        Ok(())
+    }
+
+    #[test]
+    fn total_attachment_capacity_accepts_boundary_and_rejects_one_byte_more() -> TestResult {
+        let mut profile = profile_with_attachment();
+        profile.attachments[0].data = vec![0x35; MAX_ATTACHMENT_BYTES];
+        profile.attachments[0].sha256 = digest(&profile.attachments[0].data);
+        for index in 1..4 {
+            let id = format!("synthetic-large-file-{index}");
+            let mut attachment = profile.attachments[0].clone();
+            attachment.id.clone_from(&id);
+            let mut message = profile.messages[1].clone();
+            message.id.clone_from(&id);
+            message.attachment_id = Some(id);
+            profile.attachments.push(attachment);
+            profile.messages.push(message);
+        }
+        assert_eq!(
+            profile
+                .attachments
+                .iter()
+                .map(|file| file.data.len())
+                .sum::<usize>(),
+            MAX_TOTAL_ATTACHMENT_BYTES
+        );
+        assert!(validate_profile(&profile).is_ok());
+        let mut attachment = profile.attachments[0].clone();
+        attachment.id = "synthetic-one-byte-file".into();
+        attachment.data.zeroize();
+        attachment.data = vec![0x36];
+        attachment.sha256 = digest(&attachment.data);
+        let mut message = profile.messages[1].clone();
+        message.id.clone_from(&attachment.id);
+        message.attachment_id = Some(attachment.id.clone());
+        profile.attachments.push(attachment);
+        profile.messages.push(message);
+        assert!(matches!(validate_profile(&profile), Err(VaultError::Limit)));
+        Ok(())
     }
 
     #[test]
