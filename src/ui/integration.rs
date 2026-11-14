@@ -334,6 +334,7 @@ impl App {
         {
             match event {
                 DesktopEvent::Show => {
+                    self.integration.initial_hide = false;
                     self.integration.hidden = false;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -345,6 +346,7 @@ impl App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 DesktopEvent::CheckUpdates => {
+                    self.integration.initial_hide = false;
                     let _ = self.integration.update_requests.try_send(());
                     self.settings_open = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
