@@ -24,7 +24,7 @@ impl Drop for Cng {
 }
 fn checked(status: i32) -> anyhow::Result<()> {
     anyhow::ensure!(
-        status >= 0,
+        status == 0,
         "Windows Hello ist nicht verfügbar, wurde abgebrochen oder unterstützt den benötigten Schlüsselschutz nicht. Bitte das Passwort verwenden."
     );
     Ok(())
@@ -234,7 +234,7 @@ pub fn enroll(secret: &[u8; 32]) -> anyhow::Result<Slot> {
             wrapped_key: wrapped,
         })
     })();
-    if result.is_err() && unsafe { NCryptDeleteKey(key.0, 0) } >= 0 {
+    if result.is_err() && unsafe { NCryptDeleteKey(key.0, 0) } == 0 {
         key.0 = 0;
     }
     result

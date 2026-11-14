@@ -32,7 +32,7 @@ pub fn create(
         hex::encode(random)
     ));
     vault.backup_to_new(&destination)?;
-    prune(folder, id, retention)?;
+    prune(folder, id, retention, &destination)?;
     Ok(destination)
 }
 fn owned(name: &str, id: &str) -> bool {
@@ -50,7 +50,7 @@ fn owned(name: &str, id: &str) -> bool {
             .iter()
             .all(|c| c.is_ascii_hexdigit())
 }
-fn prune(folder: &Path, id: &str, retention: u8) -> anyhow::Result<()> {
+fn prune(folder: &Path, id: &str, retention: u8, keep: &Path) -> anyhow::Result<()> {
     let mut files = Vec::new();
     for (index, entry) in fs::read_dir(folder)?.enumerate() {
         anyhow::ensure!(
@@ -68,7 +68,7 @@ fn prune(folder: &Path, id: &str, retention: u8) -> anyhow::Result<()> {
     }
     files.sort();
     let remove = files.len().saturating_sub(usize::from(retention));
-    for file in files.into_iter().take(remove) {
+    for file in files.into_iter().filter(|file| file != keep).take(remove) {
         // Only owned, regular ciphertext files. Never follow a symlink or recurse.
         if fs::symlink_metadata(&file)?.file_type().is_file() {
             fs::remove_file(file)?;
@@ -94,6 +94,11 @@ mod tests {
         let b = create(&vault, &folder, &id, 2, 2)?;
         let c = create(&vault, &folder, &id, 3, 2)?;
         assert!(!a.exists() && b.exists() && c.exists() && foreign.exists());
+        let backwards = create(&vault, &folder, &id, 0, 2)?;
+        assert!(
+            backwards.exists(),
+            "a newly written backup must survive a clock rollback"
+        );
         let bytes = fs::read(&c)?;
         assert!(
             !bytes

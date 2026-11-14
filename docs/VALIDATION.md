@@ -9,7 +9,7 @@
   strenges Clippy. Zusätzliche Regressionen für Besitz/Revisionsbindung, spätes
   Retry nach Löschung, Bitmap-Leeren und unabhängige Native-Lock-Abbrüche sowie
   Einstellungen/Rate-Limit ergänzen den aktuellen Satz auf **101 Linux-Tests**; ein zusätzlicher Akteurtest prüft vollständige Wiederherstellung, falsches Passwort, belegtes Ziel und beschädigte Sicherung.
-  Die endgültigen aktuellen Ergebnisse sind im Branch-CI-Lauf massgeblich.
+  Der vollständige lokale Folge-Lauf besteht mit **102 Tests**. Die endgültigen aktuellen Ergebnisse sind im Branch-CI-Lauf massgeblich.
 - Windows-Lauf [43634633664](https://github.com/747elias/Hushlink/actions/runs/43634633664)
   für `7336f17bebf2222eb6b03552418edf38f2e62ea1`: **100 Tests erfolgreich**, Format,
   strenges Clippy, RFCOMM-Probe, echter x64-MSVC-Release-Build, sichtbarer EXE-Start,
@@ -32,6 +32,7 @@
   bestätigt verzögerte Kamera-DLLs und keine separate VC++-Laufzeit. Native
   Job-Objekte und vom UI unabhängige Sperrflags kompilieren/prüfen auf Windows.
   Kamera- und Hello-Hardware wird dadurch weiterhin nicht nachgewiesen.
+- Zusätzliche Regression: neue Sicherung muss bei zurückgestellter Systemuhr erhalten bleiben. Fehler zuerst reproduziert, Bereinigung um expliziten Schutz der neuen Kopie erweitert. CNG behandelt ausschliesslich `ERROR_SUCCESS (0)` als Erfolg.
 - SignPath-Ablauf, App-/Setup-Signaturprüfung, Zertifikatsbindung im Updater und
   Windows-Prüfung tatsächlich veröffentlichter Downloads vorbereitet. Actionlint
   und PowerShell-Syntax prüfen die Konfiguration. **Keine echte Signatur:**

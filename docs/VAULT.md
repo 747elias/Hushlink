@@ -124,7 +124,7 @@ Ciphertexts, keine erneute Verschlüsselung mit wiederverwendeter Nonce.
 Neue Ziele werden atomar angelegt und niemals überschrieben. Datei:
 `HushlinkBackup-<zufällige Profilkennung>-<Zeit in ms, 20 Ziffern>-<16 Hex>.vault`.
 Nur exakt zur eigenen Sicherungskennung passende reguläre Dateien werden nach der
-Aufbewahrungsgrenze gelöscht; keine Symlinks, fremden Dateien oder Verzeichnisse.
+Aufbewahrungsgrenze gelöscht; die gerade erzeugte Kopie bleibt auch bei zurückgestellter Systemuhr erhalten. Keine Symlinks, fremden Dateien oder Verzeichnisse.
 Leere Sperrdateien bleiben für sichere Betriebssystemsperren erhalten.
 
 Die automatische Sicherung läuft nur entsperrt, standardmässig nach Auswahl eines

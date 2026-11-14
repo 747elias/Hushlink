@@ -29,3 +29,5 @@ MSVC, optionale Kamera-Importtabellen und alle Installer-Smokes erfolgreich
 Speicheransicht, Ciphertext-Backup, automatische und manuelle Sperre; keine
 Klartextmarker in Profil/Backup/Logs. Zusätzlicher Restore-Akteurtest erfolgreich.
 Letzter Schutz verhindert Enter-Entsperren hinter dem Restore-/Einstellungsdialog.
+
+Abschlusskorrektur: Backup-Aufbewahrung schützt die soeben erzeugte Kopie auch bei rückgestellter Uhr (mit zuvor fehlgeschlagener Regression). CNG akzeptiert gemäss offizieller API ausschliesslich ERROR_SUCCESS (0). Erneuter gesamter Prüflauf erforderlich.
