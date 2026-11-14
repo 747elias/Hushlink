@@ -88,6 +88,7 @@ jobs:
             work/installer-smoke/*.json
             work/installer-smoke/*.txt
             work/installer-smoke/*.log
+            work/installer-smoke/*.png
           if-no-files-found: ignore
           retention-days: 14
       - name: Preserve the exact checked installer and release assets

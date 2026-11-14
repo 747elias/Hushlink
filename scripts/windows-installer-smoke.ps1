@@ -66,7 +66,8 @@ function Stop-TestProcess([Diagnostics.Process]$Process) {
 function Test-AppStartup([bool]$Tray) {
     $arguments = @()
     if ($Tray) { $arguments += '--tray' }
-    $start = @{FilePath=$installedExe; PassThru=$true}
+    $label = if ($Tray) { 'tray' } else { 'visible' }
+    $start = @{FilePath=$installedExe; PassThru=$true; RedirectStandardOutput=(Join-Path $report "$label-stdout.txt"); RedirectStandardError=(Join-Path $report "$label-stderr.txt")}
     if ($arguments.Count -gt 0) { $start.ArgumentList = $arguments }
     $app = Start-Process @start
     $processes.Add($app)
@@ -173,6 +174,17 @@ try {
     $checks | ForEach-Object { Write-Host $_ }
 } catch {
     [IO.File]::WriteAllText((Join-Path $report 'failure.txt'), $_.Exception.ToString(), [Text.UTF8Encoding]::new($false))
+    try {
+        Add-Type -AssemblyName System.Drawing
+        Add-Type -AssemblyName System.Windows.Forms
+        $bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $bitmap = [Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.CopyFromScreen($bounds.Location, [Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $report 'failure.png'), [Drawing.Imaging.ImageFormat]::Png)
+        } finally { $graphics.Dispose(); $bitmap.Dispose() }
+    } catch { Write-Warning 'Installer failure screenshot unavailable.' }
     throw
 } finally {
     foreach ($app in $processes) { Stop-TestProcess $app }

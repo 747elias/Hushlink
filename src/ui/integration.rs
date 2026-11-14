@@ -266,28 +266,20 @@ impl App {
     pub(super) fn integration_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.integration.events.try_recv() {
             match event {
-                UiEvent::Tray(result) => {
-                    match result {
-                        Ok(tray) => self.integration.tray = Some(tray),
-                        Err(error) => {
-                            self.integration.initial_hide = false;
-                            #[cfg(windows)]
-                            {
-                                self.error = format!(
-                                    "Das Tray-Symbol konnte nicht gestartet werden. Das Fenster bleibt sichtbar. {error}"
-                                );
-                            }
-                            #[cfg(not(windows))]
-                            let _ = error;
-                        }
-                    }
-                    if self.integration.initial_hide && self.integration.tray_ready() {
-                        self.lock(ctx);
-                        self.integration.hidden = true;
+                UiEvent::Tray(result) => match result {
+                    Ok(tray) => self.integration.tray = Some(tray),
+                    Err(error) => {
                         self.integration.initial_hide = false;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                        #[cfg(windows)]
+                        {
+                            self.error = format!(
+                                "Das Tray-Symbol konnte nicht gestartet werden. Das Fenster bleibt sichtbar. {error}"
+                            );
+                        }
+                        #[cfg(not(windows))]
+                        let _ = error;
                     }
-                }
+                },
                 UiEvent::Bootstrap(prefs) => {
                     self.integration.prefs = prefs;
                     self.integration.bootstrap_ready = true;
@@ -359,6 +351,18 @@ impl App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
             }
+        }
+        // eframe unconditionally shows its native window after first paint.
+        // A Visible(false) command in that same frame would be undone. Count
+        // complete frames, not layout passes, and keep the failure fallback visible.
+        if self.integration.initial_hide
+            && self.integration.tray_ready()
+            && ctx.cumulative_frame_nr() >= 2
+        {
+            self.lock(ctx);
+            self.integration.hidden = true;
+            self.integration.initial_hide = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         let update = self
             .integration
