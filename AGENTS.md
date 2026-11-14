@@ -17,3 +17,7 @@
 - Unit tests must not change the real Windows Run registry. Test native installation/autostart on disposable Windows CI accounts; preserve user vaults on update and uninstall.
 - Keep update hosts fixed, response/download limits, revalidation before launch and explicit install/restart. Respect automatic-update opt-out while locked. Checksums do not constitute a publisher signature.
 - Native installer smoke must pass before tagging; release only the exact installer bytes that passed it. Preserve the bounded parent-process handoff before Inno AppMutex checks.
+
+- Resume only application file bytes inside a fresh Noise session after renewed trust/consent. Bind checkpoints to identity, ID, name, size and full digest; validate prefix hashes; never persist cipher state/nonces. Preserve duplicate-receipt and abrupt-exit checkpoint tests.
+- Notifications carry only generic text/counts. Bind notification state to lock generations and drive it from the native tray thread even without egui frames. Never include contact/file names or content previews.
+- Drag/drop only queues local paths for the selected authenticated peer; require a separate explicit send action. Clear queued paths on lock, disconnect and recipient changes. Discovery results must match their uncancelled operation flag.

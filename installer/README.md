@@ -7,7 +7,7 @@ Die dauerhafte AppId lautet `{36F98DE2-AD17-432E-AE2D-759CA74B8574}`. Die Instal
 Für ein bereits geprüftes Update verwendet die App:
 
 ```text
-Hushlink-v0.2.0-windows-x64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /HUSHLINKPARENTPID=<App-Prozesskennung>
+Hushlink-v0.3.0-windows-x64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /HUSHLINKPARENTPID=<App-Prozesskennung>
 ```
 
 Die App sperrt den Tresor und beendet sich vor dem Austausch. Nach erfolgreicher stiller Installation öffnet der Installer Hushlink mit `--tray`. `/NoLaunch` unterdrückt diesen letzten Schritt bei automatisierten Verpackungsprüfungen. Der Installer wartet vor seiner Einzelinstanz-Prüfung höchstens 30 Sekunden auf den übergebenen App-Prozess. Er öffnet diesen ausschließlich zum Warten, beendet ihn nicht. Eine andere noch laufende Instanz blockiert die Installation über `AppMutex=Local\Hushlink`. Restart Manager übernimmt kooperatives Schließen; ein erzwungenes Beenden ist nicht konfiguriert. Profile gehören nicht zum installierten Payload. Es gibt keine pauschale Löschung von Verzeichnissen: Deinstallation lässt selbst gewählte Tresore und die lokalen App-Einstellungen bestehen.
@@ -24,8 +24,8 @@ $commit = (git rev-parse HEAD).Trim()
 New-Item -ItemType Directory -Force build-artifact | Out-Null
 Copy-Item target/x86_64-pc-windows-msvc/release/hushlink.exe build-artifact/hushlink.exe
 [IO.File]::WriteAllText("$pwd/build-artifact/build-commit.txt", "$commit`n", [Text.UTF8Encoding]::new($false))
-./scripts/package.ps1 -Version v0.2.0 -Commit $commit
-./scripts/windows-installer-smoke.ps1 -Installer release-assets/Hushlink-v0.2.0-windows-x64-setup.exe -Application build-artifact/hushlink.exe -Version 0.2.0
+./scripts/package.ps1 -Version v0.3.0 -Commit $commit
+./scripts/windows-installer-smoke.ps1 -Installer release-assets/Hushlink-v0.3.0-windows-x64-setup.exe -Application build-artifact/hushlink.exe -Version 0.3.0
 ```
 
 Die letzte Zeile installiert und deinstalliert tatsächlich. Sie ist für ein sauberes, wegwerfbares Windows-Testkonto bestimmt und verweigert vorhandene Hushlink-Installationen. Alle normalen Benutzerprofile bleiben unangetastet. Für Veröffentlichungen übernimmt ausschließlich der gegatete Tag-Workflow diese Schritte und veröffentlicht genau die erfolgreich getesteten Dateien.

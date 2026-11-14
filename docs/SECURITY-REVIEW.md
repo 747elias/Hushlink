@@ -1,3 +1,15 @@
+# Interne Prüfung v0.3.0
+
+Entwicklungsbegleitende Prüfung, kein externer Sicherheitsaudit. Die neue Resume-Kontrolle ist Teil der authentifizierten Sitzung und darf nur nach neuer beidseitiger Vertrauensfreigabe und erneuter ausdrücklicher Annahme verwendet werden. Identität und unveränderliche Angebotsmetadaten binden den verschlüsselten Teilstand. Der Sender prüft den Präfix gegen seinen unveränderlichen Tresor-Snapshot; der Empfänger prüft weiterhin die ganze Datei vor dauerhafter Speicherung und Receipt. Alte Cipher-Zustände werden nie wieder aufgenommen. Ein verlorener Receipt erzeugt keine zweite Datei/Nachricht.
+
+Mitteilungen tragen nur feste generische Texte. Ihr kurzer gemeinsamer Signalzustand ist an die Sperrgeneration gebunden; verspätete Konfigurationen und Ereignisse einer alten Sitzung können ihn nach dem Sperren nicht reaktivieren. Der native Thread beobachtet Fokus und verarbeitet Signale auch bei minimierter GUI. Keine Klartextnamen/-vorschauen werden an Windows übergeben. Drag & Drop bindet eine bewusst freizugebende Liste an den ausgewählten bestätigten Peer und verwirft sie bei Sperre, Trennung oder Empfängerwechsel.
+
+Der Assistent verwendet die wirklichen Adapter-/Provider-/Verbindungszustände und die bestehende Identitätsprüfung. Abgebrochene Suchergebnisse dürfen keine neuere Suche ersetzen. Kontakteigennamen sind reine lokale Anzeige; der bestätigte Schlüssel bleibt unverändert.
+
+87 lokale Tests und der vollständige Windows-Lauf 43627895522 mit 89 Tests und Installer-Abnahme waren erfolgreich. Die automatischen und manuellen Ergebnisse stehen in [VALIDATION.md](VALIDATION.md). Physische Bluetooth- und sichtbare Windows-Benachrichtigungsnachweise bleiben getrennte manuelle Schritte.
+
+---
+
 # Interne Prüfung v0.2.0
 
 Entwicklungsbegleitende Codeprüfung, kein externer Sicherheitsaudit. Erweitert wurden verschlüsselte Dateiangebote und Zustandsübergänge mit Abbruchbestätigung, Dateispeicherung vor Receipt, separate Frame-/Chatbudgets und Löschung von Anhangspuffern bei Sperre. Große Transfers erzeugen höchstens zehn UI-Verlaufssnapshots pro Sekunde. Export prüft den Abbruch auch nach `sync_all`; eine abgebrochene unvollständige Ausgabe wird entfernt.

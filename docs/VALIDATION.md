@@ -1,4 +1,21 @@
-# Prüfstand v0.2.0
+# Prüfstand v0.3.0
+
+- Lokal mit Rust 1.91.1: 87 vollständige Tests erfolgreich einschließlich der Regression für abgebrochene Discovery. Strenges Clippy und Format erfolgreich. Die endgültigen Ergebnisse für den Release-Commit sind im Actions-Lauf massgeblich.
+- Neue Prüfungen: fortgesetzter Dateiversand in neuer Noise-Sitzung, erneute Zustimmung, ungültige/replayte Resume-Kontrollen, Präfixabweichung, Empfängeridentität, verlorene Speicherbestätigung ohne Duplikate, verschlüsselte Checkpoints vor Sperre und nach abruptem Verlust, v0.2-Migration mit Anhängen/Passwortwechsel, Kontakte/Favoriten und inhaltsfreie Benachrichtigungen über Sperrgenerationen hinweg.
+- Drag-&-Drop-Regression: ohne Vertrauen und bei gesperrter App keine Vormerkliste, kein automatisches Senden, Begrenzung, Ablehnung fehlender lokaler Pfade, Leeren bei Kontaktwechsel und Sperre. Discovery-Regression verhindert die Anzeige verspäteter Ergebnisse abgebrochener Suchen.
+- Reale Linux-X11-Oberfläche mit ausdrücklich künstlichem separatem Testtresor: Entsperren, Kontakt auswählen und Zähler löschen, lokalen Alias/Favoriten speichern, Geräteübersicht, Ansicht eines verschlüsselt gespeicherten Teilstands, Assistent mit ehrlichem fehlendem Windows-Transport und Sperren per Strg+L geprüft. Keine erfundene Funkverbindung. Stdout/stderr leer.
+- Windows-Prüfschranke enthält weiterhin Format, Clippy, vollständige Tests, RFCOMM-API-Probe, MSVC-Release-Build, tatsächlichen EXE-Start, Paketprüfung und Installation, Tray-Start, Autostart, Update-Übergabe sowie Deinstallation des wirklichen Installers. Der zusätzliche native Nachrichtenschleifentest verarbeitet Benachrichtigungssignale ohne egui-Repaints und synthetische Klickereignisse; er beweist keine sichtbare Windows-Mitteilung auf Benutzerhardware.
+
+- Vollständiger Windows-Lauf [43627895522](https://github.com/747elias/Hushlink/actions/runs/43627895522) für `75bae04d3c7489387f47ccf1aeaebcd4111fd6ec`: **89 Tests**, Format, strenges Clippy, MSVC-Release-Build, EXE-Start, Paketprüfung und sämtliche echten Installer-/Tray-/Autostart-/Update-Übergabe-/Deinstallationsprüfungen erfolgreich. Der native Benachrichtigungsschleifentest bestand ohne egui-Repaints.
+- Heruntergeladene Windows-Artefakte lokal erneut geprüft: x64-PE32+-GUI-App und x64-Installer, SHA-256, Commit-Marker und identische EXEs im ZIP. Die Importtabelle enthält Windows-Systembibliotheken und keine separate VC-Runtime; das Binary ist ausdrücklich unsigniert.
+- Nach erneutem Entsperren des künstlichen UI-Testtresors blieben Alias und Favorit erhalten, alle sensiblen Fenster waren zuvor durch Strg+L geschlossen. Künstliche Profil-/Kontakt-/Passwort-/Anhangstexte fehlen in den 106 erzeugten App-Dateien/Logs; stdout und stderr sind leer.
+- Der Tag-Workflow prüft seinen genauen Commit erneut und veröffentlicht ausschließlich die dabei erfolgreich geprüften Installerbytes. Der nachfolgende Job lädt die tatsächlichen veröffentlichten Downloads separat herunter und prüft Commit, Größe, SHA-256, PE-Format und ZIP-Gleichheit. Maßgeblich bleibt der konkrete [Release-Lauf](https://github.com/747elias/Hushlink/actions/workflows/release.yml).
+
+Offen bleiben die Abnahme auf zwei physischen Windows-11-PCs (Chat, Dateifortsetzung, Funkunterbruch, Pairing, Adapterverlust), tatsächliche Win+L-/Explorer-/Skalierungs-/Benachrichtigungsabnahme und ein Upgrade zwischen verschiedenen installierten Versionen auf Benutzerhardware. [Manueller Testplan](MANUAL-TEST.md). Keine externe Sicherheitsprüfung.
+
+---
+
+# Archivierter Prüfstand v0.2.0
 
 ## Aktueller Ausbau
 
