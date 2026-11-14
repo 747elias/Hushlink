@@ -1,7 +1,22 @@
 //! Worker actors connecting the encrypted vault, authenticated session and real RFCOMM.
 //! All KDF, file, Bluetooth and protocol work runs outside the eframe thread.
 
-use crate::{desktop, protocol, storage_location, transport, vault};
+#[cfg(not(test))]
+use crate::desktop;
+use crate::{protocol, storage_location, transport, vault};
+// Unit tests must never change the developer's real Windows startup registry.
+// Native installation/registry integration is exercised on disposable CI users.
+#[cfg(test)]
+mod desktop {
+    std::thread_local! { static STARTUP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    pub fn startup_enabled() -> anyhow::Result<bool> {
+        Ok(STARTUP.get())
+    }
+    pub fn set_startup(enabled: bool) -> anyhow::Result<()> {
+        STARTUP.set(enabled);
+        Ok(())
+    }
+}
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
 use sha2::{Digest, Sha256};
 use std::{

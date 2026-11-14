@@ -14,3 +14,8 @@
 /release-assets/
 /package-stage/
 /package-verification/
+
+hushlink-settings.json
+hushlink-settings.lock
+
+__pycache__/

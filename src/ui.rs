@@ -4,6 +4,9 @@ use eframe::egui::{self, Color32, RichText, Vec2};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
+mod integration;
+use integration::{Integration, Picker};
+
 const MINT: Color32 = Color32::from_rgb(113, 222, 193);
 const BACKGROUND: Color32 = Color32::from_rgb(15, 23, 29);
 const PANEL: Color32 = Color32::from_rgb(21, 32, 39);
@@ -11,6 +14,11 @@ const MUTED: Color32 = Color32::from_rgb(154, 175, 184);
 const MAX_TEXT: usize = 16 * 1024;
 
 pub fn run() -> eframe::Result {
+    let Some(_instance) = crate::desktop::acquire_instance()
+        .map_err(|error| eframe::Error::AppCreation(error.into()))?
+    else {
+        return Ok(());
+    };
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/hushlink.png"))
         .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?;
     let options = eframe::NativeOptions {
@@ -31,7 +39,7 @@ pub fn run() -> eframe::Result {
         options,
         Box::new(|cc| {
             configure(&cc.egui_ctx);
-            Ok(Box::new(App::new()))
+            Ok(Box::new(App::new(&cc.egui_ctx)))
         }),
     )
 }
@@ -99,6 +107,7 @@ fn configure(ctx: &egui::Context) {
 }
 
 struct App {
+    integration: Integration,
     runtime: Option<Runtime>,
     generation: u64,
     view: View,
@@ -119,13 +128,14 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(ctx: &egui::Context) -> Self {
         let (runtime, error) = match Runtime::vault_path() {
             Ok(path) => (Some(Runtime::new(path)), String::new()),
             Err(_) => (None, "Der lokale App-Datenordner ist nicht verfügbar. Prüfe dein Windows-Benutzerprofil.".into()),
         };
         let generation = runtime.as_ref().map_or(0, Runtime::generation);
         Self {
+            integration: Integration::new(ctx),
             runtime,
             generation,
             view: View::default(),
@@ -172,7 +182,10 @@ impl App {
     }
 
     fn clear_locked_ui(&mut self, ctx: &egui::Context) {
+        self.integration.clear_sensitive();
+        let path = std::mem::take(&mut self.view.vault_path);
         self.view = View::default();
+        self.view.vault_path = path;
         self.view.profile_exists = true;
         self.password.zeroize();
         self.confirmation.zeroize();
@@ -213,9 +226,11 @@ impl App {
                     {
                         self.selected = Some(peer.id.clone());
                     }
+                    self.integration.preferences_snapshot(&view);
                     self.view = view;
                 }
                 Event::Error(message) => {
+                    self.integration.preferences_error();
                     self.error = message;
                     self.busy = false;
                 }
@@ -268,6 +283,10 @@ impl App {
             });
             if self.busy { ui.spinner(); ui.label("Dein Tresor wird vorbereitet …"); }
             self.show_error(ui);
+            ui.add_space(10.0);
+            ui.label(RichText::new(&self.view.vault_path).small().color(MUTED));
+            if ui.button("Speicherort und App-Einstellungen …").clicked() { self.settings_open = true; }
+            ui.label(RichText::new("Alle privaten Daten liegen in einer verschlüsselten Tresordatei. Nur Update-Prüfungen benötigen Internet und sind abschaltbar.").small().color(MUTED));
             ui.add_space(22.0);
             ui.label(RichText::new("Lokal gespeichert · Ende-zu-Ende verschlüsselt · Keine Telemetrie").small().color(MUTED));
         });
@@ -503,9 +522,21 @@ impl App {
             .peer
             .as_ref()
             .is_some_and(|p| p.ready && self.selected.as_deref() == Some(&p.id));
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(ready, egui::Button::new("Datei senden …"))
+                .clicked()
+            {
+                self.pick(Picker::Send, ui.ctx());
+            }
+            if ui.button("Dateiübertragungen").clicked() {
+                self.integration.transfers_open = true;
+            }
+        });
         let composer_height = 135.0;
         let height = (ui.available_height() - composer_height).max(100.0);
         let mut has_messages = false;
+        let mut export_file: Option<String> = None;
         egui::ScrollArea::vertical().id_salt("messages").stick_to_bottom(true).auto_shrink([false, false]).max_height(height).show(ui, |ui| {
             for message in &self.view.messages {
                 if self.selected.as_deref() != Some(&message.contact_id) { continue; }
@@ -516,6 +547,12 @@ impl App {
                         ui.set_max_width((ui.available_width() * 0.85).max(120.0));
                         ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
                             ui.add(egui::Label::new(message.text.as_str()).wrap());
+                            if let Some(id) = &message.attachment_id {
+                                ui.label(RichText::new(format!("Dateianhang · {:.1} KiB", message.attachment_size as f64 / 1024.0)).small().color(MUTED));
+                                if message.status == MessageStatus::Received && ui.button("Speichern unter …").clicked() {
+                                    export_file = Some(id.clone());
+                                }
+                            }
                             let state = match message.status {
                                 MessageStatus::Pending => "Ausstehend",
                                 MessageStatus::Sent => "Gesendet",
@@ -538,6 +575,9 @@ impl App {
                 });
             }
         });
+        if let Some(id) = export_file {
+            self.pick(Picker::Export { id }, ui.ctx());
+        }
         ui.separator();
         ui.add_enabled_ui(ready, |ui| {
             let response = ui.add_sized(
@@ -594,7 +634,10 @@ impl App {
             return;
         }
         let mut open = true;
-        egui::Window::new("Einstellungen").open(&mut open).collapsible(false).resizable(false).default_width(430.0).show(ctx, |ui| {
+        egui::Window::new("Einstellungen").open(&mut open).collapsible(false).resizable(true).vscroll(true).max_height((ctx.content_rect().height()-60.0).max(260.0)).default_width(470.0).show(ctx, |ui| {
+            self.desktop_settings(ui);
+            ui.separator();
+            ui.add_enabled_ui(self.view.unlocked, |ui| {
             ui.heading("Automatisch sperren");
             let mut minutes = self.view.inactivity_minutes.max(1);
             if ui.add(egui::Slider::new(&mut minutes, 1..=120).suffix(" Min.")).changed() { self.command(Command::SetInactivity { minutes }); }
@@ -613,6 +656,7 @@ impl App {
                     self.password.zeroize(); self.new_password.zeroize(); self.new_confirmation.zeroize(); clear_ui_memory(ui.ctx());
                 }
             }
+            });
             self.show_error(ui);
             ui.separator();
             ui.label(RichText::new(format!("Hushlink {} · Lokaler Bluetooth-Chat", env!("CARGO_PKG_VERSION"))).small().color(MUTED));
@@ -635,6 +679,8 @@ impl eframe::App for App {
             self.clear_locked_ui(ctx);
         }
         self.events();
+        self.integration_events(ctx);
+        self.handle_close(ctx);
         // Check expiry before accepting new input after a suspended/occluded frame.
         if self.view.unlocked
             && self.last_activity.elapsed()
@@ -672,7 +718,6 @@ impl eframe::App for App {
                         self.chat(ui);
                     }
                 });
-            self.settings(ctx);
         } else {
             egui::CentralPanel::default().show(ctx, |ui| {
                 egui::ScrollArea::vertical()
@@ -681,6 +726,8 @@ impl eframe::App for App {
                     .show(ui, |ui| self.auth(ui));
             });
         }
+        self.settings(ctx);
+        self.file_window(ctx);
         ctx.request_repaint_after(Duration::from_millis(200));
     }
 }

@@ -1,6 +1,6 @@
 # Hushlink – Kurzstart für Windows 11 x64
 
-1. Die EXE herunterladen und starten. Alternativ die ZIP vollständig entpacken und die enthaltene EXE starten. Die App benötigt keine Installation und keine Administratorrechte. Profile liegen im lokalen Windows-App-Datenordner, nicht neben der EXE.
+1. **Hushlink-v0.2.0-windows-x64-setup.exe** herunterladen und im eigenen Benutzerkonto installieren. Keine Administratorrechte nötig. Alternativ die separate EXE direkt starten oder die ZIP vollständig entpacken. Der Tresor liegt zunächst im lokalen Windows-App-Datenordner, nicht neben der EXE; in Einstellungen lässt sich sein Speicherort wählen.
 2. Falls Windows SmartScreen warnt: Diese erste Version ist nicht mit einem vertrauenswürdigen Herausgeberzertifikat signiert. Quelle und SHA-256-Prüfsumme vor dem Start prüfen. Keine Sicherheitsfunktion pauschal deaktivieren.
 3. Auf beiden PCs Bluetooth einschalten. Die Adapter müssen Bluetooth Classic/RFCOMM unterstützen; reine BLE-Adapter reichen nicht. Wenn nötig die PCs über die Windows-Bluetooth-Einstellungen koppeln.
 4. Beim Erststart Anzeigename und ein starkes, einzigartiges Passwort festlegen. Ein vergessenes Passwort kann nicht zurückgesetzt werden; ohne das Passwort ist der lokale Verlauf verloren.
@@ -8,14 +8,17 @@
 6. Den vollständigen Sicherheitsfingerabdruck auf beiden PCs über einen unabhängigen, vertrauenswürdigen Weg vergleichen, zum Beispiel direkt nebeneinander. Beide Personen müssen ihn auf ihrem Gerät bestätigen. Ein Bluetooth-Gerätename beweist keine Identität.
 7. Danach schreiben: Enter sendet, Umschalt+Enter fügt einen Zeilenumbruch ein. „Empfangen“ bedeutet, dass die Gegenstelle eine geschützte Bestätigung geschickt hat.
 8. Vor dem Verlassen des PCs die App sperren. Die Inaktivitätssperre lässt sich in der App einstellen. Sperren beendet laufende Verbindungen.
+9. **Datei senden**: Datei bis 20 MiB auswählen. Die andere Person muss annehmen. Unter **Dateiübertragungen** Fortschritt sehen oder abbrechen. Anhänge bleiben im verschlüsselten Tresor; **Speichern unter** erzeugt eine unverschlüsselte Kopie. Keine automatische Ausführung.
+10. **Einstellungen**: vorhandenen Tresor wählen oder Speicherort ändern, Windows-Autostart, Schliessen ins Tray und automatische Updates einstellen. Schliessen ins Tray sperrt zuerst. Zum vollständigen Beenden das Tray-Menü nutzen. Nur Updates benötigen Internet; Installation erst nach **Update installieren und neu starten**.
 
 ## Prüfsummen
 
-Alle drei Release-Dateien aus derselben Version herunterladen. Im Download-Ordner:
+Prüfsummen aus derselben Version herunterladen. Im Download-Ordner:
 
 ```powershell
-Get-FileHash .\Hushlink-v0.1.0-windows-x64.exe -Algorithm SHA256
-Get-FileHash .\Hushlink-v0.1.0-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.2.0-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.2.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\Hushlink-v0.2.0-windows-x64.zip -Algorithm SHA256
 ```
 
 Die Werte mit `SHA256SUMS.txt` vergleichen. Prüfsummen erkennen eine beschädigte oder abweichende Datei; sie ersetzen keine unabhängige Prüfung der Downloadquelle.
@@ -29,3 +32,5 @@ Die Werte mit `SHA256SUMS.txt` vergleichen. Prüfsummen erkennen eine beschädig
 - Lokales Löschen eines Verlaufs verspricht keine sichere physische Löschung auf SSDs.
 
 Bei Problemen README und SECURITY im ZIP beziehungsweise im Repository lesen.
+
+Vor dem Update von v0.1 die geschlossene Tresordatei sichern. v0.2 migriert beim Speichern; danach nicht mit v0.1 öffnen. Beide PCs brauchen dasselbe neue Protokoll und einen erneuten Sicherheitscodevergleich. Deinstallation bewahrt Tresor und Einstellungen.

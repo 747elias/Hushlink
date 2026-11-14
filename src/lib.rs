@@ -4,6 +4,6 @@ pub mod transport;
 pub mod ui;
 pub mod vault;
 
-pub mod storage_location;
 pub mod desktop;
+pub mod storage_location;
 pub mod updater;

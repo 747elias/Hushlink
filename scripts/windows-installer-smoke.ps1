@@ -42,9 +42,10 @@ function Get-StartupValue {
     return $entry.Value
 }
 
-function Invoke-Setup([bool]$NoLaunch, [string]$LogName) {
+function Invoke-Setup([bool]$NoLaunch, [string]$LogName, [int]$ParentProcessId = 0) {
     $arguments = @('/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/LOG=`"$(Join-Path $report $LogName)`"")
     if ($NoLaunch) { $arguments += '/NoLaunch' }
+    if ($ParentProcessId -gt 0) { $arguments += "/HUSHLINKPARENTPID=$ParentProcessId" }
     $setup = Start-Process -FilePath $installerPath -ArgumentList $arguments -PassThru
     if (-not $setup.WaitForExit(120000)) {
         Stop-Process -Id $setup.Id -ErrorAction SilentlyContinue
@@ -124,6 +125,25 @@ try {
     if ($null -ne (Get-StartupValue)) { throw 'Update re-enabled explicitly disabled autostart.' }
     Assert-Fixtures
     $checks.Add('Repeated installation preserves disabled autostart and synthetic user files')
+
+    # Exercise the actual updater ordering: setup starts while the existing app
+    # still holds Local\Hushlink, then waits for that parent before AppMutex.
+    $parent = Start-Process -FilePath $installedExe -ArgumentList '--tray' -PassThru
+    $processes.Add($parent)
+    Start-Sleep -Seconds 4
+    $parent.Refresh()
+    if ($parent.HasExited) { throw 'Update handoff parent exited early.' }
+    $closer = Start-Job -ArgumentList $parent.Id -ScriptBlock {
+        param($AppProcessId)
+        Start-Sleep -Seconds 5
+        Stop-Process -Id $AppProcessId -ErrorAction Stop
+    }
+    try {
+        Invoke-Setup $true 'update-live-parent.log' $parent.Id
+        Receive-Job $closer -Wait -ErrorAction Stop | Out-Null
+    } finally { Remove-Job $closer -Force }
+    Assert-Fixtures
+    $checks.Add('Updater installer waits for the live app parent before checking its instance mutex')
 
     New-ItemProperty -LiteralPath $runKey -Name Hushlink -Value $expectedRun -PropertyType String -Force | Out-Null
     Invoke-Setup $false 'update-restart.log'

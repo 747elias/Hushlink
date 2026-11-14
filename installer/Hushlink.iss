@@ -48,6 +48,7 @@ WizardStyle=modern
 LicenseFile=..\LICENSE
 CloseApplications=yes
 CloseApplicationsFilter=Hushlink.exe
+AppMutex=Local\Hushlink
 RestartApplications=yes
 RestartIfNeededByRun=no
 UsePreviousAppDir=yes
@@ -91,11 +92,70 @@ var
   ExistingInstallation: Boolean;
   ExistingStartup: Boolean;
 
+function OpenParentProcess(Access: LongWord; Inherit: Boolean; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForParent(Process: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseParentHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function AwaitUpdatingApp(): Boolean;
+var
+  Index, Digit: Integer;
+  Argument, Value: String;
+  ProcessId: Int64;
+  Seen: Boolean;
+  Process: THandle;
+begin
+  Result := False;
+  Seen := False;
+  for Index := 1 to ParamCount do
+  begin
+    Argument := ParamStr(Index);
+    if CompareText(Copy(Argument, 1, 19), '/HUSHLINKPARENTPID=') = 0 then
+    begin
+      if Seen then Exit;
+      Seen := True;
+      Value := Copy(Argument, 20, Length(Argument));
+      if (Length(Value) = 0) or (Length(Value) > 10) then Exit;
+      for Digit := 1 to Length(Value) do
+        if (Value[Digit] < '0') or (Value[Digit] > '9') then Exit;
+      ProcessId := StrToInt64Def(Value, 0);
+      if (ProcessId <= 0) or (ProcessId > 4294967295) then Exit;
+      { SYNCHRONIZE only: never terminate or write to another process. }
+      Process := OpenParentProcess($00100000, False, ProcessId);
+      if Process = 0 then
+      begin
+        { ERROR_INVALID_PARAMETER: the parent already exited. All other
+          failures, including access denied, fail closed. }
+        if DLLGetLastError <> 87 then Exit;
+      end
+      else
+      begin
+        try
+          if WaitForParent(Process, 30000) <> 0 then Exit;
+        finally
+          CloseParentHandle(Process);
+        end;
+      end;
+    end;
+  end;
+  Result := True;
+end;
+
 function InitializeSetup(): Boolean;
 var
   InstalledVersion: String;
   InstalledPacked, NewPacked: Int64;
 begin
+  { Inno calls this before checking AppMutex. The updater starts us before
+    its own run_native loop releases the single-instance guard. }
+  Result := AwaitUpdatingApp();
+  if not Result then
+  begin
+    SuppressibleMsgBox('Hushlink konnte vor dem Update nicht vollständig beendet werden. Bitte die App beenden und die Installation erneut starten.', mbError, MB_OK, IDOK);
+    Exit;
+  end;
   ExistingInstallation := RegKeyExists(HKCU, '{#UninstallKey}');
   ExistingStartup := RegValueExists(HKCU, '{#RunKey}', 'Hushlink');
   Result := True;

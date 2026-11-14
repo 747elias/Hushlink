@@ -7,10 +7,10 @@ Die dauerhafte AppId lautet `{36F98DE2-AD17-432E-AE2D-759CA74B8574}`. Die Instal
 Für ein bereits geprüftes Update verwendet die App:
 
 ```text
-Hushlink-v0.2.0-windows-x64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS
+Hushlink-v0.2.0-windows-x64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /HUSHLINKPARENTPID=<App-Prozesskennung>
 ```
 
-Die App sperrt den Tresor und beendet sich vor dem Austausch. Nach erfolgreicher stiller Installation öffnet der Installer Hushlink mit `--tray`. `/NoLaunch` unterdrückt diesen letzten Schritt bei automatisierten Verpackungsprüfungen. Restart Manager übernimmt kooperatives Schließen; ein erzwungenes Beenden ist nicht konfiguriert. Profile gehören nicht zum installierten Payload. Es gibt keine pauschale Löschung von Verzeichnissen: Deinstallation lässt selbst gewählte Tresore und die lokalen App-Einstellungen bestehen.
+Die App sperrt den Tresor und beendet sich vor dem Austausch. Nach erfolgreicher stiller Installation öffnet der Installer Hushlink mit `--tray`. `/NoLaunch` unterdrückt diesen letzten Schritt bei automatisierten Verpackungsprüfungen. Der Installer wartet vor seiner Einzelinstanz-Prüfung höchstens 30 Sekunden auf den übergebenen App-Prozess. Er öffnet diesen ausschließlich zum Warten, beendet ihn nicht. Eine andere noch laufende Instanz blockiert die Installation über `AppMutex=Local\Hushlink`. Restart Manager übernimmt kooperatives Schließen; ein erzwungenes Beenden ist nicht konfiguriert. Profile gehören nicht zum installierten Payload. Es gibt keine pauschale Löschung von Verzeichnissen: Deinstallation lässt selbst gewählte Tresore und die lokalen App-Einstellungen bestehen.
 
 Das Release enthält die direkt startbare EXE sowie den Installer und ein ZIP mit beiden Varianten, Anleitungen und Lizenzhinweisen. Es benötigt keine zusätzliche .NET-, MSIX-, App-SDK- oder VC++-Installation. Es besitzt keine behauptete Authenticode-Signatur; Windows kann deshalb SmartScreen-Hinweise anzeigen.
 
