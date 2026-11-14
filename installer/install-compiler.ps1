@@ -28,6 +28,6 @@ if (-not $process.WaitForExit(120000)) {
 if ($process.ExitCode -ne 0) { throw "Compiler installation failed with exit code $($process.ExitCode)" }
 $compiler = Join-Path $destinationPath 'ISCC.exe'
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) { throw 'ISCC.exe was not installed.' }
-$actualVersion = (Get-Item -LiteralPath $compiler).VersionInfo.ProductVersion
-if ($actualVersion -notmatch '^7\.1\.1(?:\.0)?$') { throw "Unexpected compiler product version: $actualVersion" }
+$actualVersion = (& $compiler --version | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualVersion -cne $version) { throw "Unexpected compiler engine version: $actualVersion" }
 Write-Host "Verified and installed Inno Setup $version ($expectedHash)."

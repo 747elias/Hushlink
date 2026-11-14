@@ -608,13 +608,21 @@ impl Actor {
             Err(error) => (default_path.clone(), Some(error.to_string())),
         };
         let mut view = View::default();
-        let desktop_preferences = storage_location::load_preferences(&default_path).unwrap_or(
+        let mut desktop_preferences = storage_location::load_preferences(&default_path).unwrap_or(
             storage_location::DesktopPreferences {
                 start_with_windows: false,
                 minimize_to_tray: false,
                 automatic_updates: false,
             },
         );
+        if let Ok(enabled) = desktop::startup_enabled() {
+            desktop_preferences.start_with_windows = enabled;
+        }
+        #[cfg(not(windows))]
+        {
+            desktop_preferences.start_with_windows = false;
+            desktop_preferences.automatic_updates = false;
+        }
         view.vault_path = path.display().to_string();
         view.profile_exists = path.exists() || path_error.is_some();
         view.status = path_error
@@ -3196,6 +3204,28 @@ mod tests {
                 .is_some_and(|vault| vault.profile().attachments.is_empty()
                     && vault.profile().messages.is_empty())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn failed_desktop_preferences_restore_startup_without_touching_user_registry()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        desktop::set_startup(false)?;
+        let bootstrap = directory.path().join("hushlink-settings.json");
+        std::fs::write(&bootstrap, b"SYNTHETIC_BROKEN_BOOTSTRAP")?;
+        assert!(
+            actor
+                .command(&mut Command::SetDesktopSettings {
+                    start_with_windows: true,
+                    minimize_to_tray: false,
+                    automatic_updates: false,
+                })
+                .is_err()
+        );
+        assert!(!desktop::startup_enabled()?);
+        assert_eq!(std::fs::read(bootstrap)?, b"SYNTHETIC_BROKEN_BOOTSTRAP");
         Ok(())
     }
 

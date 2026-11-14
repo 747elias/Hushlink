@@ -68,6 +68,7 @@ pub(super) struct Integration {
     pending_prefs: Option<DesktopPreferences>,
     preferences_failed: bool,
     bootstrap_ready: bool,
+    paused_for_session: bool,
 }
 impl Integration {
     pub(super) fn new(ctx: &egui::Context) -> Self {
@@ -133,6 +134,9 @@ impl Integration {
                 set_update(&mailbox, UpdateState::Checking, &wake);
                 match updater::check_for_update(env!("CARGO_PKG_VERSION")) {
                     Ok(Some(release)) => {
+                        if !manual && !auto.load(Ordering::Acquire) {
+                            continue;
+                        }
                         if let Some(existing) = &cached
                             && existing.version() == release.version()
                         {
@@ -189,6 +193,7 @@ impl Integration {
             pending_prefs: None,
             preferences_failed: false,
             bootstrap_ready: false,
+            paused_for_session: false,
         }
     }
     fn tray_ready(&self) -> bool {
@@ -208,6 +213,7 @@ impl Integration {
         if let Some(requested) = self.pending_prefs {
             if observed == requested {
                 self.prefs = observed;
+                self.paused_for_session = !observed.automatic_updates;
                 self.automatic
                     .store(observed.automatic_updates, Ordering::Release);
                 if observed.automatic_updates {
@@ -224,6 +230,12 @@ impl Integration {
                 self.pending_prefs = None;
                 self.preferences_failed = false;
             }
+        } else if self.bootstrap_ready {
+            self.prefs = observed;
+            self.automatic.store(
+                observed.automatic_updates && !self.paused_for_session,
+                Ordering::Release,
+            );
         }
     }
     pub(super) fn clear_sensitive(&mut self) {
@@ -231,6 +243,10 @@ impl Integration {
         self.last_offer.zeroize();
         self.last_offer = None;
         self.dialog_busy = false;
+        // A lock can invalidate a queued settings command. Never leave the
+        // controls waiting forever for an acknowledgement from that generation.
+        self.pending_prefs = None;
+        self.preferences_failed = false;
     }
 }
 impl Drop for Integration {
@@ -470,6 +486,7 @@ impl App {
         ui.label(RichText::new("Nur Updates benötigen Internet. Nachrichten und Dateien werden ausschliesslich über Bluetooth übertragen.").small().color(MUTED));
         if changed && self.integration.pending_prefs.is_none() {
             if !prefs.automatic_updates {
+                self.integration.paused_for_session = true;
                 self.integration.automatic.store(false, Ordering::Release);
                 self.integration.cancel.store(true, Ordering::Release);
             }

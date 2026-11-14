@@ -38,7 +38,8 @@ Copy-Item docs "$stage/docs" -Recurse
 Copy-Item "docs/RELEASE-$Version.md" "$stage/RELEASE-NOTES.md"
 [IO.File]::WriteAllText("$pwd/$stage/BUILD-COMMIT.txt", "$Commit`n", [Text.UTF8Encoding]::new($false))
 $compilerPath = (Resolve-Path -LiteralPath $Compiler).Path
-if ((Get-Item -LiteralPath $compilerPath).VersionInfo.ProductVersion -notmatch '^7\.1\.1(?:\.0)?$') {
+$compilerVersion = (& $compilerPath --version | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $compilerVersion -cne '7.1.1') {
     throw 'The release requires the pinned Inno Setup 7.1.1 compiler. Run installer/install-compiler.ps1.'
 }
 $payloadDirectory = (Resolve-Path -LiteralPath $stage).Path

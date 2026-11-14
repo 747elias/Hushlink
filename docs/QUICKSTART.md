@@ -33,4 +33,4 @@ Die Werte mit `SHA256SUMS.txt` vergleichen. Prüfsummen erkennen eine beschädig
 
 Bei Problemen README und SECURITY im ZIP beziehungsweise im Repository lesen.
 
-Vor dem Update von v0.1 die geschlossene Tresordatei sichern. v0.2 migriert beim Speichern; danach nicht mit v0.1 öffnen. Beide PCs brauchen dasselbe neue Protokoll und einen erneuten Sicherheitscodevergleich. Deinstallation bewahrt Tresor und Einstellungen.
+Vor dem Update von v0.1 die geschlossene Tresordatei sichern. v0.2 migriert beim Speichern; danach nicht mit v0.1 öffnen. Beide PCs brauchen dasselbe neue Protokoll; bereits bestätigte Identitäten bleiben gespeichert. Deinstallation bewahrt Tresor und Einstellungen.

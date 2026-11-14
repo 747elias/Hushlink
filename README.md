@@ -28,7 +28,7 @@ Der Standardpfad liegt im lokalen Windows-App-Datenordner (`%LOCALAPPDATA%\Hushl
 
 Den verschlüsselten Tresor nur bei geschlossener App sichern. Backups benötigen dasselbe Passwort. Eine beschädigte oder von aussen geänderte Datei wird nicht automatisch ersetzt. Betriebssystemverschlüsselung wie BitLocker ergänzt den App-Tresor. Ein entsperrtes oder kompromittiertes Gerät bleibt ein Risiko. [SECURITY.md](SECURITY.md) beschreibt das Bedrohungsmodell und die Grenzen einschliesslich Metadaten und lokal gespeicherter Nachrichten.
 
-Vor dem Wechsel von v0.1 auf v0.2 den geschlossenen Tresor sichern. v0.2 liest vorhandene Profile, speichert jedoch ein erweitertes Format, das v0.1 sicher abweist. Beide Chatpartner müssen v0.2 verwenden; der versionierte Protokollkontext verlangt einen neuen Codevergleich. Deinstallation entfernt die App, bewahrt Tresore und Einstellungen.
+Vor dem Wechsel von v0.1 auf v0.2 den geschlossenen Tresor sichern. v0.2 liest vorhandene Profile, speichert jedoch ein erweitertes Format, das v0.1 sicher abweist. Beide Chatpartner müssen v0.2 verwenden. Bereits bestätigte Identitätsschlüssel bleiben vertrauenswürdig; neue und geänderte Kontakte brauchen weiterhin den beidseitigen Codevergleich. Deinstallation entfernt die App, bewahrt Tresore und Einstellungen.
 
 ## Bauen
 

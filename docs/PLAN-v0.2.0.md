@@ -10,3 +10,10 @@
 Der Chat- und Dateitransport bleibt ausschliesslich Bluetooth. Update-Prüfungen benötigen sichtbar und abschaltbar Internet. Der Repository-Inhaber hat das bestehende Repository öffentlich gemacht; anonymer Zugriff auf die bisherigen Release-Metadaten wurde geprüft.
 
 Alle privaten Profil-, Kontakt-, Nachrichten- und Anhangsdaten liegen in einer verschlüsselten Tresordatei. Ein minimaler Startverweis auf den gewählten Pfad und die leere Betriebssystemsperrdatei enthalten keine Chatdaten.
+
+## Fortschritt
+
+- Erledigt und gepusht: Dateiprotokoll, Worker, verschlüsselte Anhänge, Pfadwahl/-verlagerung, Windows-Tray/Einzelinstanz/Autostart, öffentlicher Update-Client, Installer und UI-Verknüpfung.
+- Lokal geprüft: 77 Tests, Format, strenges Clippy, Lizenzabgleich, Actionlint/PowerShell-Syntax; Abhängigkeitsprüfung ohne klassifizierte Schwachstellen.
+- In Arbeit: nativer Windows-MSVC-/Installerlauf, anschließend genaue Release-Prüfschranke und Downloadverifikation für v0.2.0.
+- Externe Hardwaregrenze bleibt: keine zwei physischen Windows-11-Bluetooth-Geräte in dieser Umgebung.

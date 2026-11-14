@@ -1,3 +1,15 @@
+# Interne Prüfung v0.2.0
+
+Entwicklungsbegleitende Codeprüfung, kein externer Sicherheitsaudit. Erweitert wurden verschlüsselte Dateiangebote und Zustandsübergänge mit Abbruchbestätigung, Dateispeicherung vor Receipt, separate Frame-/Chatbudgets und Löschung von Anhangspuffern bei Sperre. Große Transfers erzeugen höchstens zehn UI-Verlaufssnapshots pro Sekunde. Export prüft den Abbruch auch nach `sync_all`; eine abgebrochene unvollständige Ausgabe wird entfernt.
+
+Die Pfadverlagerung erhält vollständige verschlüsselte Kopien, bis der Startverweis sicher gespeichert ist. Bei unklarem Abschluss werden weitere Schreibvorgänge ungültig und die App lädt den Startverweis nach Sperre erneut. Desktop-Einstellungen werden zusammen mit dem Windows-Run-Eintrag serialisiert; bei fehlgeschlagener Bootstrap-Speicherung wird der vorherige Run-Zustand zurückgesetzt. Update-Verzicht gilt bereits während einer ausstehenden Speicherung für die aktuelle Sitzung.
+
+Der Updater prüft feste HTTPS-Hosts, begrenzte Metadaten/Downloads, Semver, Dateigröße, Prüfsumme und PE-Format. Direkt vor dem Start erfolgt die Prüfung erneut unter einem gegen Austausch gesperrten Windows-Dateihandle. Er verwendet keine Geheimnisse und vertraut ausdrücklich GitHub/Publisher/TLS; keine unabhängige Signatur behauptet. Der Installer wartet begrenzt auf den startenden App-Prozess vor der AppMutex-Prüfung. UI-Exportdialoge tragen keine Anhangsnamen weiter über die Sperre; veraltete Dialogergebnisse werden nach Lock-Generation verworfen.
+
+Lokal wurden 77 Tests und strenges Clippy ausgeführt. Native Windows-Ergebnisse und Hardwaregrenzen stehen in [VALIDATION.md](VALIDATION.md). Die aktualisierte Abhängigkeitsprüfung meldet keine klassifizierten Schwachstellen oder Unsoundness; der unten dokumentierte Schriftbibliotheks-Wartungshinweis bleibt.
+
+---
+
 # Interne Sicherheits- und Integrationsprüfung, v0.1.0
 
 Stand: 13. November 2026. Dies ist eine entwicklungsbegleitende Codeprüfung
