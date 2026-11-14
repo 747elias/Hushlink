@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 – in Entwicklung, Veröffentlichung durch Signierkonfiguration blockiert
+
+- Authentifizierte Antworten, Bearbeitungen und Emoji-Reaktionen mit dauerhaften verschlüsselten Bestätigungen und sicherer Wiederholung nach neuer Verbindung.
+- Optionale Schreibanzeige, lokale Verlaufssuche, Pins, Kontakt-Stummschaltung und Sperre unbekannter Anfragen.
+- PNG-Zwischenablageversand mit bewusster Freigabe, Rate und Restzeit, vollständiger QR-Sicherheitsvergleich per Kamera.
+- Optionaler echter Windows-Hello-Schlüsselplatz, authentifizierte Hülle 2, Passwort-Fallback und Profilschema 4.
+- Verschlüsselte Sicherungen mit Aufbewahrung und sicherem Wiederherstellen an einen neuen Pfad; Speicherübersicht und gezieltes Löschen.
+- Vorbereitete SignPath-Pipeline für App und Setup, Authenticode-/Timestamp-Prüfung vor Installation/Veröffentlichung und Herausgeberzertifikatsbindung im Updater. Ohne verifizierten Dienst kein signierter Release.
+
+[Prüfstand und offene Hardwaretests](docs/RELEASE-v0.4.0.md), [Signiereinrichtung](docs/SIGNING.md).
+
+
 ## 0.3.0 – Benachrichtigungen und Dateifortsetzung
 
 - Inhaltsfreie Windows-Benachrichtigungen und ungelesene Zähler, unabhängig von egui-Repaints.

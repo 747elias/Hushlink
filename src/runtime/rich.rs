@@ -2,6 +2,27 @@ use super::*;
 use crate::conversation::{Action, PendingAction};
 use rand::{RngCore, rngs::OsRng};
 impl Actor {
+    pub(super) fn allow_connection_request(&mut self, address: &str) -> bool {
+        let known = self.vault.as_ref().is_some_and(|v| {
+            v.profile()
+                .contacts
+                .iter()
+                .any(|c| c.bluetooth_address == address)
+        });
+        if known {
+            return true;
+        }
+        if self.view.unknown_block_until_ms > timestamp_ms()
+            || self
+                .last_unknown_request
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(10))
+        {
+            return false;
+        }
+        self.last_unknown_request = Some(Instant::now());
+        true
+    }
+
     pub(super) fn queue_action(&mut self, action: Action) -> anyhow::Result<()> {
         let contact = self
             .view

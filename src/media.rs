@@ -80,7 +80,44 @@ pub fn matches_qr(payload: &[u8], fingerprint: &str) -> bool {
 /// cannot keep capturing after lock: the parent kills/waits the owned helper.
 #[cfg(windows)]
 pub fn scan_camera(index: u32, cancelled: &AtomicBool) -> anyhow::Result<Vec<u8>> {
+    use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        System::JobObjects::*,
+    };
+    struct Job(HANDLE);
+    impl Drop for Job {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+    anyhow::ensure!(
+        !cancelled.load(Ordering::Acquire),
+        "Kameraprüfung wurde abgebrochen."
+    );
+    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    anyhow::ensure!(
+        !job.is_null(),
+        "Kamera konnte nicht sicher gestartet werden."
+    );
+    let job = Job(job);
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    anyhow::ensure!(
+        unsafe {
+            SetInformationJobObject(
+                job.0,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        } != 0,
+        "Kamera konnte nicht sicher gestartet werden."
+    );
+
     anyhow::ensure!(index < 16, "Ungültige Kameraauswahl.");
     let mut child = std::process::Command::new(std::env::current_exe()?)
         .arg("--hushlink-scan-qr")
@@ -90,6 +127,11 @@ pub fn scan_camera(index: u32, cancelled: &AtomicBool) -> anyhow::Result<Vec<u8>
         .stderr(std::process::Stdio::null())
         .creation_flags(0x08000000)
         .spawn()?;
+    if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) } == 0 {
+        let _ = child.kill();
+        let _ = child.wait();
+        anyhow::bail!("Kamera konnte nicht sicher gestartet werden.");
+    }
     let start = Instant::now();
     loop {
         if cancelled.load(Ordering::Acquire) || start.elapsed() > Duration::from_secs(35) {
@@ -101,7 +143,7 @@ pub fn scan_camera(index: u32, cancelled: &AtomicBool) -> anyhow::Result<Vec<u8>
             Ok(Some(status)) => {
                 anyhow::ensure!(
                     status.success(),
-                    "Die Kamera konnte keinen Sicherheitscode lesen. Windows-Kameraberechtigung für Desktop-Apps prüfen oder eine andere Kamera wählen."
+                    "Die Kamera konnte keinen Sicherheitscode lesen. Windows-Kameraberechtigung für Desktop-Apps prüfen, gegebenenfalls Media Feature Pack installieren oder eine andere Kamera wählen."
                 );
                 let mut bytes = Vec::new();
                 child

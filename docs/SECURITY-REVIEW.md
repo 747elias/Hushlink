@@ -128,3 +128,28 @@ monotoner Aktivitätszeitpunkt und ein Regressionstest decken den Fall ohne UI-
 Frames ab. Bei Rückkehr nach einer langen Framepause wird die Frist vor neuer
 Eingabe geprüft. Beim Sperren und nach Passwortübergabe werden auch Text-,
 Clipboard-Paste- und IME-Eingabepuffer des aktuellen egui-Frames gelöscht.
+
+
+## Interne Erweiterungsprüfung v0.4 (keine externe Auditierung)
+
+- Aktionen: gemeinsame ID-Grenzen, getrennte verschlüsselte ACKs, dauerhafte
+  Speicherung vor Senden/Bestätigen, Besitz/Revision/Emoji-Grenzen, vollständige
+  Kontakt/ID/Digest-Bindung über neue Sitzungen. Gelöschte Antworten werden durch
+  späte Wiederholung nicht neu angelegt; inhaltsfreie Receipts bleiben dafür erhalten.
+- Medien: kein automatischer Bildversand, keine temporären Klartextdateien,
+  Größen-/Pixelgrenzen und generationgebundene Ergebnisse. Native Sperre und
+  Disconnect brechen Kamera-/Zwischenablagearbeit über den Runtime-Hub unabhängig
+  von UI-Frames ab. Kamera-Hilfsprozess mit kill-on-close Job Object; MF-DLLs
+  verzögert geladen. Reale Treiber/HW noch nicht abgenommen.
+- Hello: echter nicht exportierbarer Passport-KSP-Schlüssel, strikte Eigenschaften,
+  frischer Gesture-Zwang und fehlgeschlagener stiller Zugriff. Der zusätzliche
+  opaque Slot ist an die Inhalts-AEAD gebunden; Passwort bleibt Rückweg. Strenge
+  OAEP-/Provider-Unterstützung ist ein expliziter noch offener Hardwaretest.
+- Backups: nur geprüfter Ciphertext, freie Ziele, strikte eigene Dateinamen/keine
+  Symlinks beim Pruning, vollständige Authentifizierung vor Wiederherstellung.
+  Alte Sicherungen behalten Inhalt und frühere Zugangsschlüssel.
+- Signierung: vorbereitete zwei Signierstufen mit Chain/EKU/Pin/Timestamp,
+  identische getestete Installerbytes und Signaturschranke im Updater. Kein
+  reales Zertifikat/Dienst vorhanden; kein signierter Release oder Audit behauptet.
+- Erneute Abhängigkeitsprüfung: 0 klassifizierte Schwachstellen/Unsoundness mit
+  RustSec-Stand 13.11.2026, unmaintained `ttf-parser` und `paste` dokumentiert.

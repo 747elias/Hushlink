@@ -30,7 +30,7 @@ Dateiangebote und alle Annahme-, Abbruch- und Speicherbestätigungen sind versch
 
 Die gemeinsame Tresordatei enthält sämtliche privaten Daten. Ein kleiner unverschlüsselter Startverweis enthält den gewählten Pfad und nicht geheime Desktop-Einstellungen, insbesondere den Update-Verzicht. Dateiname, Pfad und Dateisystem-Metadaten werden nicht verborgen. Sicheres Verschieben schützt gegen Überschreiben und unsichere Teilstände; eine nicht eindeutig bestätigte Pfadänderung bewahrt beide verschlüsselten Kopien und sperrt weitere Schreibvorgänge bis zum erneuten Öffnen. Keine sichere Löschung alter Datenträgerblöcke oder Sicherungen.
 
-Die Update-Funktion ist die einzige beabsichtigte Internetverbindung: öffentliche GitHub-Release-Metadaten und Assets über HTTPS. GitHub kann IP-Adresse, Zeitpunkt und App-Version der Anfrage sehen. Es werden weder Tresorinhalt noch Kontakte oder Bluetooth-Adressen übertragen. Automatische Prüfungen/Downloads sind abschaltbar; Installation benötigt eine bewusste Auswahl und sperrt die App. Der Updater begrenzt Antwortgrößen, Zielhosts und Dateitypen und prüft Größe, SHA-256 und PE-Format erneut vor dem Start. Er vertraut dem GitHub-Publisher-Zugang und TLS, besitzt keinen unabhängigen Offline-Signaturschlüssel und garantiert keine Aktualität bei kompromittiertem Release-Zugang. Prüfsummen sind keine Herausgeberauthentifizierung. Details: [UPDATES.md](docs/UPDATES.md).
+Die Update-Funktion ist die einzige beabsichtigte Internetverbindung: öffentliche GitHub-Release-Metadaten und Assets über HTTPS. GitHub kann IP-Adresse, Zeitpunkt und App-Version der Anfrage sehen. Es werden weder Tresorinhalt noch Kontakte oder Bluetooth-Adressen übertragen. Automatische Prüfungen/Downloads sind abschaltbar; Installation benötigt eine bewusste Auswahl und sperrt die App. Der Updater begrenzt Antwortgrößen, Zielhosts und Dateitypen und prüft Größe, SHA-256 und PE-Format erneut vor dem Start. Ab v0.4 verlangt die Installation ausserdem eine von Windows geprüfte Authenticode-Signatur mit Timestamp und das beim Build eingebettete Herausgeberzertifikat. Ein unkonfigurierter Entwicklungsbuild führt keinen heruntergeladenen Installer aus. Windows kann für die Zertifikatsprüfung Sperrlisten abrufen; ohne erfolgreiche Vertrauensprüfung keine Installation. Ein kompromittierter autorisierter Signierzugang oder eine kompromittierte Buildkette kann weiterhin schädliche signierte Software erzeugen. Verfügbarkeit/Aktualität bleibt von GitHub und TLS abhängig; Prüfsummen allein sind keine Herausgeberauthentifizierung. Details: [UPDATES.md](docs/UPDATES.md).
 
 ## Prüfungen
 
@@ -38,7 +38,7 @@ Automatische Tests prüfen Handshake, gegenseitige Vertrauensfreigabe, Identitä
 
 ## Abhängigkeitsprüfung dieser Vorabversion
 
-Ein interner Lauf mit cargo-audit 0.23.0 und RustSec-Datenbankstand vom 13. November 2026 meldete nach Aktualisierung der betroffenen anyhow-/rand-Versionen keine klassifizierten Schwachstellen und keine Unsoundness-Warnungen. Die transitive Schriftbibliothek `ttf-parser 0.25.1` ist als nicht mehr gepflegt gemeldet (RUSTSEC-2026-0192); es lag keine korrigierte Version im verwendeten egui-Abhängigkeitsbaum vor. Hushlink importiert keine Schriftdateien von Chatpartnern, sondern verwendet mitgelieferte und gegebenenfalls lokale Windows-Systemschriften. Die verbleibende Wartungswarnung ist kein externer Sicherheitsaudit. Neue Bibliotheks- und RustSec-Stände müssen bei Folgeversionen erneut geprüft werden.
+Ein interner Lauf mit cargo-audit 0.23.0 und RustSec-Datenbankstand vom 13. November 2026 meldete nach Aktualisierung der betroffenen anyhow-/rand-Versionen keine klassifizierten Schwachstellen und keine Unsoundness-Warnungen. Die transitive Schriftbibliothek `ttf-parser 0.25.1` ist als nicht mehr gepflegt gemeldet (RUSTSEC-2026-0192); es lag keine korrigierte Version im verwendeten egui-Abhängigkeitsbaum vor. Hushlink importiert keine Schriftdateien von Chatpartnern, sondern verwendet mitgelieferte und gegebenenfalls lokale Windows-Systemschriften. Ab v0.4 kommt durch die Kamerabibliothek `paste 1.0.15` als nicht mehr gepflegte Build-Makrobibliothek hinzu (RUSTSEC-2024-0436). Der erneute interne Lauf am 14. November mit diesem Datenbankstand meldete weiterhin null klassifizierte Schwachstellen und null Unsoundness-Warnungen. Die beiden Wartungswarnungen sind dokumentiert; das ist kein externer Sicherheitsaudit. Neue Bibliotheks- und RustSec-Stände müssen bei Folgeversionen erneut geprüft werden.
 
 Die entwicklungsbegleitende [interne Codeprüfung](docs/SECURITY-REVIEW.md) und der konkrete [Prüfstand](docs/VALIDATION.md) sind dokumentiert.
 
@@ -49,3 +49,51 @@ Fortsetzung bewahrt ausschließlich verschlüsselte Anwendungsdaten, keine Sitzu
 Kontakteigennamen, Favoriten, ungelesene Zähler und Teilstände liegen verschlüsselt im Tresor. Eigennamen ändern keine Identität. Drag & Drop bindet vorgemerkte Pfade an den ausgewählten bestätigten Kontakt; Sperren, Trennen und Empfängerwechsel verwerfen die Vormerkliste. Nichts wird allein durch Ablegen automatisch gesendet.
 
 Windows-Mitteilungen verwenden ausschließlich festen generischen Text. Weder Kontakt-/Dateinamen noch Vorschauinhalte werden an die Windows-Benachrichtigungsoberfläche übergeben. Hinweise und Zähler können trotzdem Aktivitätsmetadaten verraten; Windows steuert Sichtbarkeit, Ruhezeiten und seine eigene Aufbewahrung. Sperren deaktiviert die Signalquelle und löscht ausstehende Hinweise. Der native Tray-Thread verarbeitet Hinweise auch ohne egui-Repaints. Schliessen ins Tray bleibt eine Sperre mit Sitzungsende; Hintergrundempfang erfolgt bei entsperrter minimierter App. Keine Anonymitätsgarantie.
+
+## Erweiterungen v0.4 und ihre Grenzen
+
+Antworten, Bearbeitungen und Reaktionen sind authentifizierte Sitzungsnachrichten.
+Eine Änderungsbestätigung wird erst nach erfolgreicher verschlüsselter Speicherung
+gesendet. Unbestätigte eigene Änderungen werden sichtbar gekennzeichnet. Nach
+neuer Sitzung verhindert ein verschlüsseltes Kontakt/ID/Hash-Receipt das doppelte
+Anwenden; abweichende Wiederholungen und unzulässige Autorenschaft/Revisionen führen
+zum Abbruch. Lokales Löschen bewahrt nur diese ID-/Digest-Metadaten gegen spätes
+Wiederanlegen, Kontaktentfernung entfernt auch sie. Bearbeiten entfernt keine bereits
+bei der Gegenstelle angefertigte Kopie und verspricht keine Tilgung alten Textes.
+
+Die standardmässig ausgeschaltete Schreibanzeige teilt keine Entwürfe, verrät aber
+gewollt Aktivität. Stummschaltung verhindert native Hinweise dieses Kontakts, nicht
+die verschlüsselte Speicherung und ungelesene Zähler. Anfragebegrenzung reduziert
+Störungen, verhindert keine absichtliche Funk-/SDP-Überlastung. Eine bekannte
+Bluetooth-Adresse ersetzt weiterhin keine Schlüsselprüfung.
+
+Zwischenablage-Bilder werden nur bei ausdrücklichem Einfügen im ausgewählten
+bestätigten Chat gelesen; ein zweiter Schritt bietet sie an. Es gibt keine
+Hintergrundüberwachung der Zwischenablage. Daten bleiben im Speicher beziehungsweise
+im verschlüsselten Tresor, ohne temporäre Klartextdatei. Windows und die kopierende
+Anwendung können eigene Zwischenablagehistorien besitzen. Nur die bewusste
+QR-Prüfung startet die Kamera. Ein begrenzter Hilfsprozess wird bei Abbruch/Sperre
+beendet; Bilder werden nicht gespeichert. Der vollständige QR-Code bindet beide
+Identitäten und den Protokollkontext. Ein Scan öffnet keine URL und hebt die
+beidseitige Bestätigung nicht auf. Hardware-/Treiberunterstützung ist separat zu prüfen.
+
+Windows Hello schützt den zufälligen Tresorschlüssel mit einem nicht exportierbaren
+Passport-KSP-Schlüssel und verpflichtender erneuter Benutzerbestätigung. Ohne
+bestätigten Schlüsselschutz keine Einrichtung; ohne privaten Schlüssel kein
+Hello-Entschlüsseln. Der Passwortzugang bleibt erhalten. Passwortwechsel widerruft
+Hello nicht automatisch. Hello explizit deaktivieren und alte Sicherungen
+berücksichtigen. Keine Garantie gegen Malware, Administratoren oder Zugriff auf
+eine bereits entsperrte App. [Voraussetzungen](docs/WINDOWS-HELLO.md).
+
+Automatische Backups sind Kopien geprüften Ciphertexts, standardmässig aus bis ein
+Ordner gewählt wird. Pfad/Dateigrösse/Dateisystemzeitpunkte können lokal sichtbar
+sein; eigene Einstellungen und private Metadaten bleiben im Tresor. Sicherungen
+laufen nur entsperrt. Alte Kopien behalten alte Nachrichten und frühere Passwort-
+und Hello-Schlüsselplätze. Wiederherstellen authentifiziert zuerst mit dem damaligen
+Passwort und überschreibt keine vorhandene Datei. Keine Serverwiederherstellung,
+keine garantierte physische Löschung und kein Schutz gegen Rücksetzen auf ein
+altes gültiges Backup.
+
+Die Signierpipeline ist vorbereitet, aber mangels legitimem Zertifikat/verifiziertem
+Dienst noch nicht praktisch signiert. Windows-Code und synthetische Negativtests
+sind kein Nachweis einer autorisierten Herausgebersignatur. [Externer Schritt](docs/SIGNING.md).

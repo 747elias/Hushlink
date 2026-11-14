@@ -1,6 +1,6 @@
-# Tresorformat: Hülle 1, Profilschema 3
+# Tresorformat: Hülle 1/2, Profilschema 4
 
-Hushlink schreibt Profil, private Identität, Kontakte, Nachrichten und gespeicherte Dateianhänge in **eine verschlüsselte Tresordatei**. Standard ist der lokale benutzerspezifische Windows-App-Datenordner; beim Erststart beziehungsweise im gesperrten Zustand kann eine andere neue oder bestehende Tresordatei gewählt werden. Ein entsperrter Tresor lässt sich über die Einstellungen an einen freien Zielpfad verschieben. Eine portable EXE speichert keinen Tresor neben der EXE. Ein externes Laufwerk muss verfügbar und beschreibbar sein; Sicherungskopien und Laufwerkszugriff bleiben in der Verantwortung der Person am Gerät. Das Passwort wird weder gespeichert noch übertragen. Ein vergessenes Passwort bedeutet ohne eigene Sicherung und bekanntes Passwort den Verlust des Profils, der Identität und der lokalen Verläufe; ein eingebauter Wiederherstellungsmechanismus existiert nicht.
+Hushlink schreibt Profil, private Identität, Kontakte, Nachrichten und gespeicherte Dateianhänge in **eine verschlüsselte Tresordatei**. Standard ist der lokale benutzerspezifische Windows-App-Datenordner; beim Erststart beziehungsweise im gesperrten Zustand kann eine andere neue oder bestehende Tresordatei gewählt werden. Ein entsperrter Tresor lässt sich über die Einstellungen an einen freien Zielpfad verschieben. Eine portable EXE speichert keinen Tresor neben der EXE. Ein externes Laufwerk muss verfügbar und beschreibbar sein; Sicherungskopien und Laufwerkszugriff bleiben in der Verantwortung der Person am Gerät. Das Passwort wird weder gespeichert noch übertragen. Ein vergessenes Passwort bedeutet ohne eigene Sicherung und bekanntes Passwort den Verlust des Profils, der Identität und der lokalen Verläufe; eine Wiederherstellung setzt eine eigene verschlüsselte Sicherung und deren gültiges Passwort voraus. Optional kann ein eingerichteter Windows-Hello-Zugang auf demselben Benutzerkonto entsperren.
 
 ## Schlüssel und Parameter
 
@@ -8,7 +8,7 @@ Ein Profil besitzt einen unabhängigen, zufälligen 256-Bit-Tresorschlüssel. Ei
 
 Passwortableitung: Argon2id, Version 0x13, 32 Byte Ausgabe, frischer zufälliger 16-Byte-Salt, 65'536 KiB Speicher, drei Durchläufe, eine Lane. 64 MiB und drei Durchläufe folgen der speichersparenden zweiten Empfehlung des RFC 9106; eine Lane hält die Verarbeitung im einzelnen Hintergrundarbeiter vorhersehbar. Dies ist keine Aussage über ein Passwort mit geringer Entropie. Argon2id erschwert Offline-Angriffe, verhindert sie aber nicht. Die UI verlangt mindestens zwölf Zeichen; lange einzigartige Passphrasen bleiben notwendig. Lokale Wartezeiten ersetzen den KDF-Schutz nicht.
 
-Der Parser akzeptiert ausschliesslich Version 1, die unten beschriebenen Algorithmen und begrenzte KDF-Werte: Speicher 64–256 MiB, drei bis sechs Durchläufe, eine bis vier Lanes. Ungültige Werte werden vor der Ableitung verworfen. Eine Datei ist insgesamt auf 128 MiB begrenzt. Passwörter über 1'024 UTF-8-Byte werden abgelehnt. Namen sind auf 80 UTF-8-Byte ohne Steuerzeichen begrenzt; maximal 500 Kontakte und 10'000 Nachrichten mit jeweils höchstens 16 KiB Text sind zulässig. Ein einzelner Anhang enthält maximal 20 MiB; höchstens 1’000 Anhänge mit zusammen 80 MiB Rohdaten sind erlaubt. Die Base64-Darstellung im verschlüsselten JSON benötigt zusätzlich Platz; die 128-MiB-Dateigrenze kann mit viel Text früher erreicht werden. Ungültige Namen, unpassende Nachrichtenverknüpfungen, doppelte Nachrichten-IDs pro Kontakt, global doppelte Anhang-IDs und abweichende SHA-256-Prüfsummen werden verworfen. SHA-256 ersetzt hierbei nicht den AEAD-Authentifizierungstag. Die Inaktivitätssperre ist auf 1 bis 120 Minuten einstellbar.
+Der Parser akzeptiert ausschliesslich Hüllenversion 1 und 2, die unten beschriebenen Algorithmen und begrenzte KDF-Werte: Speicher 64–256 MiB, drei bis sechs Durchläufe, eine bis vier Lanes. Ungültige Werte werden vor der Ableitung verworfen. Eine Datei ist insgesamt auf 128 MiB begrenzt. Passwörter über 1'024 UTF-8-Byte werden abgelehnt. Namen sind auf 80 UTF-8-Byte ohne Steuerzeichen begrenzt; maximal 500 Kontakte und 10'000 Nachrichten mit jeweils höchstens 16 KiB Text sind zulässig. Ein einzelner Anhang enthält maximal 20 MiB; höchstens 1’000 Anhänge mit zusammen 80 MiB Rohdaten sind erlaubt. Die Base64-Darstellung im verschlüsselten JSON benötigt zusätzlich Platz; die 128-MiB-Dateigrenze kann mit viel Text früher erreicht werden. Ungültige Namen, unpassende Nachrichtenverknüpfungen, doppelte Nachrichten-IDs pro Kontakt, global doppelte Anhang-IDs und abweichende SHA-256-Prüfsummen werden verworfen. SHA-256 ersetzt hierbei nicht den AEAD-Authentifizierungstag. Die Inaktivitätssperre ist auf 1 bis 120 Minuten einstellbar.
 
 Beide Verschlüsselungen verwenden die etablierte RustCrypto-Implementierung von XChaCha20-Poly1305 mit 24-Byte-Nonce und 16-Byte-Authentifizierungstag. Zufallswerte stammen aus dem Betriebssystem über `OsRng`. Jeder neue Tresor verwendet einen neuen Salt, Tresorschlüssel, Wrapping-Nonce und Inhaltsnonce. Jede Speicherung verwendet eine neue Inhaltsnonce; Passwortwechsel erzeugen zusätzlich einen neuen Salt und eine neue Wrapping-Nonce. Es werden keine kryptografischen Algorithmen selbst implementiert.
 
@@ -19,7 +19,7 @@ Alle Ganzzahlen sind Little Endian. Die einzigen unverschlüsselten Felder besch
 | Offset | Länge | Bedeutung |
 | --- | ---: | --- |
 | 0 | 8 | `HUSHVLT` gefolgt von NUL |
-| 8 | 2 | Formatversion 1 |
+| 8 | 2 | Formatversion 1 oder 2 |
 | 10 | 1 | KDF-Kennung 1 = Argon2id v0x13 |
 | 11 | 1 | AEAD-Kennung 1 = XChaCha20-Poly1305 |
 | 12 | 4 | Argon2-Speicher in KiB |
@@ -30,7 +30,7 @@ Alle Ganzzahlen sind Little Endian. Die einzigen unverschlüsselten Felder besch
 | 64 | 24 | Inhaltsnonce |
 | 88 | 4 | Länge des verschlüsselten Inhalts einschliesslich Tag |
 | 92 | 48 | Verschlüsselter 32-Byte-Tresorschlüssel einschliesslich Tag |
-| 140 | variabel | Verschlüsselter JSON-Inhalt einschliesslich Tag |
+| 140 | variabel | Bei Hülle 1: verschlüsselter JSON-Inhalt einschliesslich Tag. Bei Hülle 2: Erweiterung wie unten, dann Inhalt. |
 
 Die Bytes 0–63 sind Additional Authenticated Data (AAD) der Schlüsselhülle. Der gesamte Header 0–139 ist AAD der Inhaltsverschlüsselung. Damit sind **alle** Headerfelder authentifiziert. Der stabile Wrapping-Präfix bleibt bei normalen Speichervorgängen gleich; die Inhaltsnonce und Länge können sich ändern, ohne den Passwortschlüssel im Arbeitsspeicher aufzubewahren. Kein Inhalt wird vor erfolgreicher Prüfung des zugehörigen Tags interpretiert oder freigegeben. Änderungen am Inhaltsnonce, an der Hülle oder am Header führen zu einem Abbruch. Ungültige Längen und zusätzliche Bytes sind unzulässig.
 
@@ -38,13 +38,13 @@ Passwortänderung prüft zunächst das bisherige Passwort an der Schlüsselhüll
 
 ## Profilschema und Abwärtskompatibilität
 
-Die binäre Hülle bleibt Version 1. Der entschlüsselte Inhalt trägt seit Hushlink 0.2 `schema_version: 2`; dazu kommen `attachments` und die optionale `attachment_id` einer Nachricht. Anhänge enthalten ID, Kontakt-ID, Namen, Base64-Daten, SHA-256, Richtung und Zeitstempel. Sie dürfen nur gemeinsam mit einer passenden Nachricht existieren. Unbekannte Felder beziehungsweise zukünftige Schemaversionen werden abgelehnt.
+Ohne Windows-Hello-Einrichtung bleibt die binäre Hülle Version 1. Der entschlüsselte Inhalt trägt seit Hushlink 0.2 `schema_version: 2`; dazu kommen `attachments` und die optionale `attachment_id` einer Nachricht. Anhänge enthalten ID, Kontakt-ID, Namen, Base64-Daten, SHA-256, Richtung und Zeitstempel. Sie dürfen nur gemeinsam mit einer passenden Nachricht existieren. Unbekannte Felder beziehungsweise zukünftige Schemaversionen werden abgelehnt.
 
-Ein 0.1-Profil ohne Schemaversion, Anhänge und neue Desktop-Einstellungen wird als Schema 1 gelesen. Identität, Passwort, Kontakte und Verlauf bleiben erhalten. Bei der nächsten Speicherung schreibt Hushlink Schema 3; ältere App-Versionen können diesen Inhalt nicht lesen. Vor einem Versionswechsel ist eine eigene verschlüsselte Sicherung sinnvoll. Die Desktop-Einstellungen erhalten bei alten Profilen Standardwerte; vorhandene Einstellungen im Bootstrap haben beim Start Vorrang, damit ein Update-Opt-out beim Entsperren erhalten bleibt.
+Ein 0.1-Profil ohne Schemaversion, Anhänge und neue Desktop-Einstellungen wird als Schema 1 gelesen. Identität, Passwort, Kontakte und Verlauf bleiben erhalten. Bei der nächsten Speicherung schreibt Hushlink Schema 4; ältere App-Versionen können diesen Inhalt nicht lesen. Vor einem Versionswechsel ist eine eigene verschlüsselte Sicherung sinnvoll. Die Desktop-Einstellungen erhalten bei alten Profilen Standardwerte; vorhandene Einstellungen im Bootstrap haben beim Start Vorrang, damit ein Update-Opt-out beim Entsperren erhalten bleibt.
 
 Seit Hushlink 0.3 schreibt der Inhalt `schema_version: 3`. Neue Kontaktfelder `alias`, `favorite` und `unread` haben sichere Standardwerte; `settings.notifications` aktiviert ausschließlich inhaltsfreie Hinweise. `partials` enthält Transfer-ID, Kontakt-ID, Dateiname, erwartete Gesamtgröße, vollständigen SHA-256 und Base64-kodierte vorhandene Bytes. Alle Felder befinden sich innerhalb derselben Inhaltsverschlüsselung. Teilstände dürfen nur zu einer passenden eingehenden ausstehenden/fehlgeschlagenen Nachricht und einem bestehenden Kontakt gehören; IDs sind zwischen vollständigen und unvollständigen Anhängen eindeutig. Beide Arten teilen sich die Grenzen von 1.000 Einträgen und 80 MiB gespeicherten Dateidaten. Teilstände sind nicht exportierbar. Die vollständige Datei wird erst nach Größen-/Digestprüfung atomar anstelle des Teilstands gespeichert. Ein bestätigter vorhandener Anhang wird bei einer verlorenen Empfangsbestätigung nicht dupliziert.
 
-Schema 1 und 2 bleiben lesbar. Beim nächsten Speichern beziehungsweise Passwortwechsel wird auf Schema 3 aktualisiert. Die ältere App wird nicht zum Öffnen der migrierten Kopie verwendet; eine vor dem Update bei geschlossener App erstellte Sicherung bleibt der Rückweg. Ein neuer Alias ändert niemals den bestätigten Identitätsschlüssel. Kontaktentfernung löscht dessen Nachrichten, Anhänge und Teilstände gemeinsam.
+Schema 1, 2 und 3 bleiben lesbar. Beim nächsten Speichern beziehungsweise Passwortwechsel wird auf Schema 4 aktualisiert. Die ältere App wird nicht zum Öffnen der migrierten Kopie verwendet; eine vor dem Update bei geschlossener App erstellte Sicherung bleibt der Rückweg. Ein neuer Alias ändert niemals den bestätigten Identitätsschlüssel. Kontaktentfernung löscht dessen Nachrichten, Anhänge und Teilstände gemeinsam.
 
 ## Speicherort und Bootstrap
 
@@ -79,3 +79,59 @@ Automatisierte Tests verwenden ausschliesslich künstliche Daten: Roundtrip mit 
 - [RustCrypto ChaCha20-Poly1305/XChaCha20-Poly1305](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
 - [Microsoft: MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw), abgerufen am 13.11.2026.
 - [Rust File locking](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock).
+
+## Hülle 2 und optionaler Windows-Hello-Schlüsselplatz
+
+Bytes 0–139 behalten ihre Felder; Version steht auf 2. Ab Offset 140 folgen vier
+Little-Endian-Bytes Erweiterungslänge (4–4096), dann genau diese JSON-Bytes und
+anschliessend die in Offset 88 angegebene verschlüsselte Inhaltslänge. Erweiterung:
+`null` oder `{version:1,key_id:<32 Hex-Zeichen>,wrapped_key:<256 Byte als JSON-Array>}`.
+JSON wird mit striktem Schema gelesen. Die Schlüsselkennung ist zufällig; sie
+enthält weder Kontonamen noch SID. Der private Hello-Schlüssel verbleibt beim
+Passport-KSP des ursprünglichen Windows-Benutzers. Das Array enthält ausschliesslich
+den mit RSA-OAEP/SHA-256 über Windows CNG geschützten unabhängigen Tresorschlüssel.
+
+Die Inhalts-AAD umfasst bei Hülle 2 **alle** 140 Basisbytes, das Längenfeld und die
+unveränderten Erweiterungsbytes. Wrapping-AAD bleibt Bytes 0–63; Ein-/Ausschalten
+von Hello erzeugt deshalb mit geprüftem Passwort eine neue Passwort-Schlüsselhülle
+mit frischem Salt und frischen Nonces. Jede Inhaltsänderung verwendet eine frische
+XChaCha-Nonce. Passwortwechsel bewahrt den Hello-Slot. Beide Unlock-Wege müssen
+dieselbe Inhalts-AEAD prüfen, bevor Inhalte freigegeben werden. Details und
+Verfügbarkeitsgrenzen: [WINDOWS-HELLO.md](WINDOWS-HELLO.md).
+
+## Profilschema 4
+
+Neue Nachrichtenfelder: `reply_to` (optionale ID), `edit_revision`, getrennte lokale
+und entfernte Reaktionen/Revisionszähler sowie `pinned`. Kontakte erhalten
+`muted_until_ms`: 0 = aus, Zukunft = zeitweilig, `u64::MAX` = dauerhaft. Die
+verschlüsselten Einstellungen umfassen optionale Schreibanzeige (Standard aus),
+Sperrzeit unbekannter Anfragen, Sicherungsordner, Aufbewahrung 1–20,
+Intervall 5–10080 Minuten, zufällige Sicherungskennung und letzten Sicherungszeitpunkt.
+Fehlende Felder alter Schemata erhalten sichere Standardwerte.
+
+`pending_actions` enthält höchstens 64 noch unbestätigte Operationen mit Inhalt und
+Kontaktbindung. `action_receipts` enthält höchstens 10000 bereits angewandte
+Eingangsoperationen als Kontakt/ID/SHA-256, damit Wiederholungen nach neuer Sitzung
+keine zweite Änderung auslösen. Digests/IDs bleiben nach Nachrichten-/Verlaufslöschung
+erhalten und verschwinden beim Entfernen des Kontakts. Es werden keine Noise-
+Schlüssel, Nonces, Netzwerk-Sitzungen oder unverschlüsselten Zusatzdaten gespeichert.
+
+## Verschlüsselte Sicherungen und Wiederherstellung
+
+Der Hintergrundakteur kopiert ausschliesslich die aktuelle, per Digest gegen
+Fremdänderungen geprüfte gültige Tresordatei. Das ist eine Kopie vorhandenen
+Ciphertexts, keine erneute Verschlüsselung mit wiederverwendeter Nonce.
+Neue Ziele werden atomar angelegt und niemals überschrieben. Datei:
+`HushlinkBackup-<zufällige Profilkennung>-<Zeit in ms, 20 Ziffern>-<16 Hex>.vault`.
+Nur exakt zur eigenen Sicherungskennung passende reguläre Dateien werden nach der
+Aufbewahrungsgrenze gelöscht; keine Symlinks, fremden Dateien oder Verzeichnisse.
+Leere Sperrdateien bleiben für sichere Betriebssystemsperren erhalten.
+
+Die automatische Sicherung läuft nur entsperrt, standardmässig nach Auswahl eines
+Ordners täglich mit fünf Kopien. Ein Fehler wird gemeldet, erneuter Versuch nach
+frühestens einer Minute. Wiederherstellen verlangt bei gesperrter App die Quelldatei,
+ein neues freies Ziel und das damalige Passwort. Erst nach vollständiger
+Authentifizierung wird Ciphertext kopiert und der neue Pfad ausgewählt. Bei Fehler
+bleiben vorhandener Tresor und Sicherung erhalten; bei unklarer Bootstrap-Speicherung
+bleibt die neue verschlüsselte Kopie zur manuellen Auswahl bestehen. Alte Sicherungen
+behalten alte Inhalte und ihre damaligen Zugangsschlüssel. Keine physische SSD-Löschung.

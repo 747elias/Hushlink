@@ -63,3 +63,63 @@ Status: **nicht durchgeführt in der Linux-Cloud-Umgebung**. GitHub-Windows-Runn
 - Erneut verbinden mit anderer Identität: kein Zugriff auf alten Teilstand. Falsche Präfixdaten/Größe/Digest werden abgewiesen. Explizites Abbrechen und Ablehnen verwerfen gespeicherte Empfangsbytes; vollständiges Löschen eines Teilstands erlaubt später einen Neubeginn. Keine Bestätigung bei Speicherfehler oder falschem vollständigem Digest.
 - Eine und mehrere Dateien ins ausgewählte bestätigte Gespräch ziehen: zunächst nur Vormerkliste mit korrektem Empfänger, keine automatische Übertragung. Ohne Vertrauen, gesperrt, nach Empfängerwechsel und nach Trennung keine Freigabe. Maximal 16 lokale Dateien; Verzeichnisse/Dateien über 20 MiB sinnvoll abweisen. Sperren leert auch eine offene Vormerkliste.
 - Entsperrte App minimieren/in den Hintergrund bringen. Text und Dateiangebot lösen einen generischen Windows-Hinweis ohne Namen/Vorschau aus. Klick öffnet das Fenster. Ungelesene Zähler im Kontakt/Tray prüfen; ausgewähltes sichtbares Gespräch wird gelesen. Bei deaktivierten Hinweisen, Fokus auf App, Windows-Ruhemodus und Sperre keine unzulässigen Hinweise. Geschlossenes Tray bleibt gesperrt ohne Sitzung. Explorer-Neustart und 100/150/200-%-Skalierung prüfen.
+
+## Erweiterungen v0.4 – zwei physische PCs erforderlich
+
+1. Geschlossenen v0.3-Tresor sichern, beide Apps aktualisieren. Schema-4-Migration,
+   Kontaktidentität, Anhänge und frühere Einstellungen prüfen. Alte App darf die
+   neue gespeicherte Kopie nicht öffnen. Kein Downgrade der Protokollversion.
+2. Antworten in beide Richtungen, Umlaute/Emoji/Zeilenumbrüche. Verweise stimmen,
+   fehlender lokaler Ursprung wird benannt. Eigene Textnachricht bearbeiten:
+   Kennzeichnung sichtbar, fremde Texte/Anhänge nicht editierbar. Beide Personen
+   reagieren und entfernen ihre eigene Reaktion; Änderungen bleiben bis zum
+   Receipt unbestätigt. Abbruch zwischen Speicherung und Receipt, Neustart,
+   erneut verbinden und explizit erneut übertragen: keine zweite Nachricht und
+   kein Rücksetzen einer bereits neueren Änderung. Keine Freigabe vor Vertrauen/nach Sperre.
+3. Suche mit Umlauten, über alle Kontakte und nur in gemerkten Nachrichten.
+   Pins/Suche ohne Verbindung nutzbar. Suche und alle sensiblen Dialoge werden
+   bei Strg+L, Inaktivität und Win+L geleert. Minimales Fenster und 100/150/200 %.
+4. Schreibanzeige ist zunächst aus; einschalten, kontinuierlich tippen, Pause,
+   Senden/Trennen/Sperren. Kein Entwurf übertragen, Indikator spätestens nach
+   sechs Sekunden weg. Temporäre/dauerhafte Kontakt-Stummschaltung unterdrückt
+   Hinweise, erhält Verlauf/Zähler und überlebt Neustart.
+5. Unbekannte Anfragen 30 Minuten/dauerhaft sperren und wieder zulassen. Bekannte
+   Adresse kann weiterhin anfragen, fremde Identität wird dennoch blockiert.
+   Mehrere unbekannte Versuche: höchstens eine Anfrage alle zehn Sekunden.
+6. Kleinen Screenshot kopieren, im fokussierten Nachrichtenfeld Strg+V sowie
+   alternativ Bild-einfügen-Button prüfen. Erst bewusst anbieten, dann beim
+   Empfänger annehmen. PNG exportieren und Bildinhalt vergleichen. Text-Paste
+   bleibt normal. Leere/gesperrte Zwischenablage, Bild >16 MP, >20 MiB, Kontakt-
+   wechsel und Sperre während Lesen/Vormerkung: keine falsche Sendung/Temporärdatei.
+7. 20-MiB-Datei übertragen, Rate/Restzeit prüfen. Nach Fortsetzung dürfen nur neu
+   übertragene Bytes zur Rate zählen; Wartezeit auf Annahme wird nicht eingerechnet.
+8. QR-Codes beider PCs vergleichen und mit eingebauter Kamera lesen. Gesamter
+   Code korrekt; anderer Kontakt, falscher Kontext und beliebige URL passen nicht.
+   Keine automatische Kontaktbestätigung. Mehrere Kameras, verweigerte Berechtigung,
+   Treiberfehler, Zeitlimit und Win+L: Kamera-Hilfsprozess/LED endet spätestens bei
+   Abbruch. Keine aufgenommenen Bilddateien. Manueller vollständiger Vergleich bleibt möglich.
+9. Windows Hello bewusst einrichten: richtiges/falsches Passwort, PIN/Biometrie,
+   Abbrechen. Jede Entsperrung verlangt erneute Hello-Bestätigung. Gesperrte OS-
+   Sitzung/Strg+L während Prompt darf keine alten Inhalte wieder freigeben.
+   Anbieter ohne OAEP/strikte Policy wird abgewiesen; kein schwächerer Fallback.
+   Passwortwechsel erhält Hello und Verlauf. Hello deaktivieren, Passwort weiter
+   gültig. Kopie auf anderem Windows-Konto/PC nur mit damaligem Passwort öffnen.
+10. Sicherungsordner/Intervall/Aufbewahrung konfigurieren. Nur verschlüsselte
+    passende eigene Dateien werden erstellt/entfernt; fremde Dateien und Symlinks
+    bleiben erhalten. Schlechtes/volles Laufwerk verständlich melden. Gesperrt
+    keine automatische Sicherung. Wiederherstellen mit falschem Passwort,
+    manipuliertem Backup, belegtem Ziel: keine Änderung bestehender Dateien.
+    Neues freies Ziel erhält vollständig Identität, Kontakte, Texte, Anhänge und
+    Einstellungen. Alte Passwörter funktionieren nur für passende alte Sicherungen.
+11. Speicherübersicht: einzelne Datei/Antwort lokal löschen, neu starten,
+    keine Wiederherstellung durch spätes Receipt/Retry. Gegenstelle/ältere Backups
+    behalten ihre Kopien. Gesamtverlauf und Kontakt bewusst entfernen.
+12. Nach Einrichtung des realen Signierdienstes einen signierten Qualifikationslauf
+    ausführen. App und Installer zeigen denselben autorisierten Herausgeber und
+    gültigen Zeitstempel; DER-Zertifikat-SHA-256 stimmt. Manipulierte/unsignierte
+    und fremd signierte Update-Installer werden vor Start blockiert. Tatsächliches
+    Upgrade zwischen zwei signierten Versionen und anschliessende Deinstallation
+    mit erhaltenem Tresor prüfen. Keine Signatur ohne konkreten Nachweis behaupten.
+
+Alle diese physischen Hardwarefälle sind hier weiterhin **nicht durchgeführt**.
+Automatische und sichtbare Cloud-UI-Prüfungen werden separat in VALIDATION.md geführt.

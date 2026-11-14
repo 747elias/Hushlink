@@ -42,3 +42,11 @@ Vor dem Update die geschlossene Tresordatei sichern. v0.3 migriert v0.1-/v0.2-Pr
 - Nach Unterbruch neu verbinden und im ausgehenden Verlauf „Erneut anbieten / fortsetzen“ wählen; die andere Person bestätigt erneut. Bereits im Tresor gesicherte Teile werden geprüft und weiterverwendet.
 - Unter „Kontakt verwalten“ eigenen Namen, Favoriten und Geräteübersicht nutzen.
 - Private Benachrichtigungen enthalten keinen Inhalt. Zum Empfang im Hintergrund die entsperrte App minimieren; Schliessen ins Tray sperrt weiterhin und beendet Sitzungen.
+
+
+Im Entwicklungsstand v0.4 kommen Antworten, Reaktionen, Bearbeitungen, Suche/Pins,
+optionale Schreibanzeige, Zwischenablage-Bilder, QR-Kamera, optionales Windows Hello,
+verschlüsselte Sicherungen und Speicherübersicht hinzu. Beide PCs benötigen v0.4.
+Vor der Migration eine verschlüsselte Kopie behalten. Neue Bedienung und Grenzen
+stehen in README.md; Windows-Hello- und Signierstatus sind in docs dokumentiert.
+Ein v0.4-Release ist vor Einrichtung und Prüfung des echten Signierdienstes gesperrt.

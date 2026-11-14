@@ -52,7 +52,13 @@ impl MediaUi {
             *value = None;
         }
     }
-    fn start(&mut self, ctx: &egui::Context, clipboard: bool, silent: bool) -> bool {
+    fn start(
+        &mut self,
+        ctx: &egui::Context,
+        clipboard: bool,
+        silent: bool,
+        flag: Arc<AtomicBool>,
+    ) -> bool {
         if self.flag.is_some() {
             return false;
         }
@@ -60,7 +66,9 @@ impl MediaUi {
             return false;
         };
         let sequence = self.sequence;
-        let flag = Arc::new(AtomicBool::new(false));
+        if flag.load(Ordering::Acquire) {
+            return false;
+        }
         self.flag = Some(flag.clone());
         let mailbox = self.mailbox.clone();
         let ctx = ctx.clone();
@@ -69,6 +77,9 @@ impl MediaUi {
             self.status=if clipboard{"Bild wird aus der Zwischenablage gelesen …"}else{"Kamera liest den Code, höchstens 30 Sekunden. Halte den Code des anderen PCs in die Kamera."}.into();
         }
         std::thread::spawn(move || {
+            if flag.load(Ordering::Acquire) {
+                return;
+            }
             let result = if clipboard {
                 crate::media::clipboard_image().map(Content::Image)
             } else {
@@ -97,6 +108,18 @@ impl Drop for MediaUi {
     }
 }
 impl App {
+    fn start_media(&mut self, ctx: &egui::Context, clipboard: bool, silent: bool) -> bool {
+        let Some(runtime) = &self.runtime else {
+            return false;
+        };
+        self.media.start(
+            ctx,
+            clipboard,
+            silent,
+            runtime.media_operation_flag(self.generation),
+        )
+    }
+
     pub(super) fn sync_media(&mut self) {
         let target = self
             .view
@@ -162,7 +185,7 @@ impl App {
             )
             .clicked()
         {
-            self.media.start(ui.ctx(), true, false);
+            self.start_media(ui.ctx(), true, false);
         }
     }
     pub(super) fn clipboard_paste(&mut self, ctx: &egui::Context, focused: bool) {
@@ -174,7 +197,7 @@ impl App {
             && self.media.flag.is_none()
             && self.media.pending.is_none()
         {
-            self.media.start(ctx, true, true);
+            self.start_media(ctx, true, true);
         }
     }
     pub(super) fn image_offer(&mut self, ui: &mut egui::Ui) {
@@ -214,12 +237,46 @@ impl App {
             }
             ui.add(egui::Label::new(RichText::new(&peer.fingerprint).monospace()).wrap());
             ui.horizontal(|ui|{ui.label("Kamera");let mut index=self.media.camera+1;if ui.add(egui::DragValue::new(&mut index).range(1..=16)).changed(){self.media.camera=index-1;}
-if ui.add_enabled(self.media.flag.is_none(),egui::Button::new("Mit Kamera prüfen")).clicked(){self.media.start(ctx,false,false);}});
+if ui.add_enabled(self.media.flag.is_none(),egui::Button::new("Mit Kamera prüfen")).clicked(){self.start_media(ctx,false,false);}});
             ui.label(RichText::new("Windows muss den Kamerazugriff für Desktop-Apps erlauben. Kamera nur während dieser bewussten Prüfung; keine Bilder werden gespeichert.").small().color(MUTED));
             ui.label(&self.media.status);
         });
         if !open {
             self.media.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pending_bitmap_and_worker_results_are_dropped_on_lock_or_context_reset() {
+        let mut state = MediaUi::default();
+        state.target = Some((1, "synthetic-peer".into(), true));
+        state.pending = Some(Zeroizing::new(b"SYNTHETIC_IMAGE_CONTENT".to_vec()));
+        let flag = Arc::new(AtomicBool::new(false));
+        state.flag = Some(flag.clone());
+        let sequence = state.sequence;
+        *state.mailbox.lock().unwrap_or_else(|p| p.into_inner()) = Some(ResultEvent {
+            sequence,
+            silent: false,
+            generation: 1,
+            peer: "synthetic-peer".into(),
+            result: Ok(Content::Image(Zeroizing::new(
+                b"SYNTHETIC_LATE_IMAGE".to_vec(),
+            ))),
+        });
+        state.clear();
+        assert!(flag.load(Ordering::Acquire));
+        assert!(state.pending.is_none() && state.target.is_none());
+        assert_ne!(state.sequence, sequence);
+        assert!(
+            state
+                .mailbox
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_none()
+        );
     }
 }

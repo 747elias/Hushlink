@@ -335,6 +335,8 @@ struct Mailbox {
 #[derive(Default)]
 struct CancellationHub {
     notices: Arc<crate::notifications::NotificationSignal>,
+    media_flags: Mutex<Vec<Arc<AtomicBool>>>,
+    peer_active: AtomicBool,
     generation: AtomicU64,
     sensitive: AtomicBool,
     last_activity: Mutex<Option<Instant>>,
@@ -347,6 +349,34 @@ struct CancellationHub {
     socket_id: AtomicU64,
 }
 impl CancellationHub {
+    fn media_flag(&self, generation: u64) -> Arc<AtomicBool> {
+        #[cfg(any(windows, test))]
+        let os_locked = self.os_locked.load(Ordering::Acquire);
+        #[cfg(not(any(windows, test)))]
+        let os_locked = false;
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Ok(mut flags) = self.media_flags.lock() {
+            flags.retain(|f| Arc::strong_count(f) > 1);
+            flags.push(flag.clone());
+            if os_locked
+                || generation != self.generation.load(Ordering::Acquire)
+                || !self.sensitive.load(Ordering::Acquire)
+                || !self.peer_active.load(Ordering::Acquire)
+            {
+                flag.store(true, Ordering::Release);
+            }
+        } else {
+            flag.store(true, Ordering::Release);
+        }
+        flag
+    }
+    fn cancel_media(&self) {
+        if let Ok(mut flags) = self.media_flags.lock() {
+            for flag in flags.drain(..) {
+                flag.store(true, Ordering::Release);
+            }
+        }
+    }
     fn touch(&self) {
         // UI activity never waits for the actor or an OS/file operation.
         if let Ok(mut activity) = self.last_activity.try_lock() {
@@ -408,6 +438,7 @@ impl CancellationHub {
         }
     }
     fn cancel_all(&self) {
+        self.cancel_media();
         if let Ok(mut flags) = self.flags.lock() {
             for flag in flags.drain(..) {
                 flag.store(true, Ordering::Release);
@@ -468,6 +499,11 @@ impl Runtime {
     }
     pub fn notifications(&self) -> Arc<crate::notifications::NotificationSignal> {
         self.hub.notices.clone()
+    }
+    /// Native session-lock cancellation also covers camera/clipboard workers,
+    /// independently of GUI frames and actor file/KDF work.
+    pub fn media_operation_flag(&self, generation: u64) -> Arc<AtomicBool> {
+        self.hub.media_flag(generation)
     }
     pub fn record_activity(&self) {
         self.hub.touch();
@@ -994,6 +1030,8 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.hub.peer_active.store(false, Ordering::Release);
+        self.hub.cancel_media();
         self.backup_checked = None;
         self.action_attempts.clear();
         self.peer_typing_since = None;
@@ -1668,9 +1706,7 @@ impl Actor {
                     v.profile_mut()
                         .pending_actions
                         .retain(|a| a.contact_id != *contact_id);
-                    v.profile_mut()
-                        .action_receipts
-                        .retain(|a| a.contact_id != *contact_id);
+                    // Keep only content digests/IDs so a retry after deletion cannot recreate a reply.
                 }
                 if let Some(vault) = &mut self.vault {
                     vault
@@ -2192,6 +2228,7 @@ impl Actor {
         self.next_peer_id += 1;
         let id = self.next_peer_id;
         let (commands, receiver) = bounded(COMMAND_CAPACITY);
+        self.hub.peer_active.store(true, Ordering::Release);
         self.peer = Some(PeerWorker {
             id,
             device: device.clone(),
@@ -2225,6 +2262,8 @@ impl Actor {
         Ok(())
     }
     fn disconnect(&mut self, status: &str) {
+        self.hub.peer_active.store(false, Ordering::Release);
+        self.hub.cancel_media();
         self.action_attempts.clear();
         self.peer_typing_since = None;
         self.local_typing_since = None;
@@ -2379,23 +2418,9 @@ impl Actor {
                 self.view.status = "Verbindungen werden angeboten. Sichtbarkeit bei Bedarf in Windows einschalten.".into();
             }
             BackgroundEvent::Incoming(stream, device, flag) => {
-                let known = self.vault.as_ref().is_some_and(|v| {
-                    v.profile()
-                        .contacts
-                        .iter()
-                        .any(|c| c.bluetooth_address == device.address)
-                });
-                if !known
-                    && (self.view.unknown_block_until_ms > timestamp_ms()
-                        || self
-                            .last_unknown_request
-                            .is_some_and(|t| t.elapsed() < Duration::from_secs(10)))
-                {
+                if !self.allow_connection_request(&device.address) {
                     stream.cancel_handle().cancel();
                     return;
-                }
-                if !known {
-                    self.last_unknown_request = Some(Instant::now());
                 }
                 if flag.load(Ordering::Acquire)
                     || self.peer.is_some()
@@ -4627,6 +4652,37 @@ mod tests {
         ] {
             assert!(!bytes.windows(marker.len()).any(|w| w == marker.as_bytes()));
         }
+        let reply = Action::Reply {
+            target: hex::encode(id),
+            text: "SYNTHETIC_DELETE_RETRY_REPLY".into(),
+        };
+        actor.peer_event(PeerEvent::Action {
+            id: [4; 16],
+            action: reply.clone(),
+        });
+        assert!(matches!(commands.try_recv()?, PeerCommand::ActionAck(_)));
+        actor.command(&mut Command::Disconnect)?;
+        actor.command(&mut Command::DeleteHistory {
+            contact_id: hex::encode([13; 32]),
+        })?;
+        assert!(actor.view.messages.is_empty());
+        assert_eq!(
+            actor
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("vault"))?
+                .profile()
+                .action_receipts
+                .len(),
+            2
+        );
+        let resumed = attach_synthetic_peer(&mut actor, true)?;
+        actor.peer_event(PeerEvent::Action {
+            id: [4; 16],
+            action: reply,
+        });
+        assert!(matches!(resumed.try_recv()?, PeerCommand::ActionAck(_)));
+        assert!(actor.view.messages.is_empty());
         actor.clear();
         assert!(
             actor
@@ -4664,6 +4720,77 @@ mod tests {
                 .any(|c| matches!(c, PeerCommand::ActionAck(_)))
         );
         assert!(actor.peer.is_none());
+        Ok(())
+    }
+    #[test]
+    fn native_lock_and_disconnect_cancel_media_without_gui_frames() {
+        let hub = CancellationHub::default();
+        hub.generation.store(1, Ordering::Release);
+        hub.sensitive.store(true, Ordering::Release);
+        hub.peer_active.store(true, Ordering::Release);
+        let active = hub.media_flag(1);
+        assert!(!active.load(Ordering::Acquire));
+        hub.record_windows_lock();
+        assert!(active.load(Ordering::Acquire));
+        assert!(hub.media_flag(1).load(Ordering::Acquire));
+        hub.observe_windows_state(false);
+        hub.sensitive.store(true, Ordering::Release);
+        let current = hub.generation.load(Ordering::Acquire);
+        let flag = hub.media_flag(current);
+        assert!(!flag.load(Ordering::Acquire));
+        hub.peer_active.store(false, Ordering::Release);
+        hub.cancel_media();
+        assert!(flag.load(Ordering::Acquire));
+        assert!(hub.media_flag(current).load(Ordering::Acquire));
+    }
+    #[test]
+    fn muted_contacts_typing_opt_in_and_unknown_request_limits_are_durable() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let commands = attach_synthetic_peer(&mut actor, true)?;
+        let contact = hex::encode([13; 32]);
+        assert!(!actor.view.share_typing);
+        actor.command(&mut Command::Typing { active: true })?;
+        assert!(commands.is_empty());
+        actor.command(&mut Command::SetShareTyping { enabled: true })?;
+        actor.command(&mut Command::Typing { active: true })?;
+        actor.command(&mut Command::Typing { active: true })?;
+        assert!(matches!(commands.try_recv()?, PeerCommand::Typing(true)));
+        assert!(commands.is_empty());
+        actor.command(&mut Command::Typing { active: false })?;
+        assert!(matches!(commands.try_recv()?, PeerCommand::Typing(false)));
+        actor.command(&mut Command::MuteContact {
+            id: contact.clone(),
+            until_ms: u64::MAX,
+        })?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [31; 16],
+            text: Zeroizing::new("SYNTHETIC_MUTED_MESSAGE".into()),
+        });
+        assert_eq!(actor.hub.notices.pending_for_test(), 0);
+        assert_eq!(actor.view.contacts[0].unread, 1);
+        assert!(matches!(commands.try_recv()?, PeerCommand::Ack(_)));
+        actor.command(&mut Command::MuteContact {
+            id: contact,
+            until_ms: 0,
+        })?;
+        actor.peer_event(PeerEvent::Chat {
+            id: [32; 16],
+            text: Zeroizing::new("SYNTHETIC_NOTICE_MESSAGE".into()),
+        });
+        assert_eq!(actor.hub.notices.pending_for_test(), 1);
+        let _ = commands.try_recv()?;
+        actor.command(&mut Command::BlockUnknown { until_ms: u64::MAX })?;
+        assert!(!actor.allow_connection_request("synthetic unknown address"));
+        assert!(actor.allow_connection_request("01:23:45:67:89:AB"));
+        actor.command(&mut Command::BlockUnknown { until_ms: 0 })?;
+        assert!(actor.allow_connection_request("synthetic unknown address"));
+        assert!(!actor.allow_connection_request("synthetic second address"));
+        actor.clear();
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert!(actor.view.share_typing && actor.view.unknown_block_until_ms == 0);
         Ok(())
     }
 }

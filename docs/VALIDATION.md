@@ -1,4 +1,50 @@
-# Prüfstand v0.3.0
+# Prüfstand v0.4.0 – noch kein veröffentlichter Release
+
+- Implementiert: Antworten, Bearbeitungen, Reaktionen, optionale Schreibanzeige,
+  Suche/Pins, Stummschaltung/Anfragebegrenzung, Rate/Restzeit, Zwischenablage-PNG,
+  QR/Kamera, optionaler kryptografisch gebundener Hello-Zugang, verschlüsselte
+  Sicherungen/Wiederherstellung und Speicherverwaltung. Protokoll 4, Schema 4,
+  optionale authentifizierte Hülle 2.
+- Lokaler vollständiger Lauf für `7336f17`: **97 Tests erfolgreich**, Format und
+  strenges Clippy. Zusätzliche Regressionen für Besitz/Revisionsbindung, spätes
+  Retry nach Löschung, Bitmap-Leeren und unabhängige Native-Lock-Abbrüche sowie
+  Einstellungen/Rate-Limit ergänzen den aktuellen Satz auf **101 Linux-Tests**.
+  Die endgültigen aktuellen Ergebnisse sind im Branch-CI-Lauf massgeblich.
+- Windows-Lauf [43634633664](https://github.com/747elias/Hushlink/actions/runs/43634633664)
+  für `7336f17bebf2222eb6b03552418edf38f2e62ea1`: **100 Tests erfolgreich**, Format,
+  strenges Clippy, RFCOMM-Probe, echter x64-MSVC-Release-Build, sichtbarer EXE-Start,
+  Paketprüfung und tatsächliche Installation/Tray/Autostart/Update-Übergabe/
+  Deinstallation. Windows prüft zusätzlich Renderer, native Tray-Schleife und
+  Ablehnung eines unsignierten Update-Binaries.
+- Tatsächliche CI-Artefakte dieses Laufs heruntergeladen: App 15'698'944 Byte,
+  Installer 7'787'407 Byte, beide x64 PE32+ GUI. SHA-256 und identische EXEs im ZIP
+  samt Commit-Marker lokal geprüft. Dies sind **unsignierte Entwicklungsartefakte**,
+  keine veröffentlichten Assets. Nur Windows-Systembibliotheken, keine separate
+  VC++-Laufzeit. Nachfolgende Verbesserung lädt Kamera-DLLs verzögert; die CI
+  kontrolliert normale und verzögerte PE-Importtabellen.
+- Reale Linux-X11-App mit ausdrücklich künstlichem separatem Tresor:
+  Entsperren, Antwortverweise, Bearbeitungsmarkierung, Reaktionen, Suche/Pins,
+  Speicherübersicht und automatische verschlüsselte Sicherung sichtbar geprüft.
+  Keine erfundene Funkverbindung. Finale Lock-/Klartextprüfung wird separat notiert.
+- SignPath-Ablauf, App-/Setup-Signaturprüfung, Zertifikatsbindung im Updater und
+  Windows-Prüfung tatsächlich veröffentlichter Downloads vorbereitet. Actionlint
+  und PowerShell-Syntax prüfen die Konfiguration. **Keine echte Signatur:**
+  Der Nutzer hat noch kein Zertifikat/verifizierten Dienst. Kein v0.4-Tag oder
+  Release veröffentlicht. Konkreter externer Schritt: [SIGNING.md](SIGNING.md).
+- cargo-audit 0.23.0 mit lokalem RustSec-Stand 13.11.2026: null klassifizierte
+  Schwachstellen/Unsoundness, Wartungswarnungen für `ttf-parser 0.25.1` und die
+  durch nokhwa genutzte Build-Makrobibliothek `paste 1.0.15`. Keine externe Prüfung.
+
+Nicht durchgeführt: echter Bluetooth-Chat/Dateifortsetzung mit zwei physischen
+Windows-11-PCs, Kameraaufnahme/QR-Lesen mit realem Gerät, Hello-PIN/Biometrie und
+Provider-Unterstützung, echte Win+L-/Skalierungs-/Benachrichtigungsabnahme sowie
+ein Versionsupgrade zwischen zwei signierten installierten Versionen. Ein
+synthetischer Schlüsselplatztest beweist keine Hello-Hardwarefunktion.
+[Manueller Ablauf](MANUAL-TEST.md).
+
+---
+
+# Archivierter Prüfstand v0.3.0
 
 - Lokal mit Rust 1.91.1: 87 vollständige Tests erfolgreich einschließlich der Regression für abgebrochene Discovery. Strenges Clippy und Format erfolgreich. Die endgültigen Ergebnisse für den Release-Commit sind im Actions-Lauf massgeblich.
 - Neue Prüfungen: fortgesetzter Dateiversand in neuer Noise-Sitzung, erneute Zustimmung, ungültige/replayte Resume-Kontrollen, Präfixabweichung, Empfängeridentität, verlorene Speicherbestätigung ohne Duplikate, verschlüsselte Checkpoints vor Sperre und nach abruptem Verlust, v0.2-Migration mit Anhängen/Passwortwechsel, Kontakte/Favoriten und inhaltsfreie Benachrichtigungen über Sperrgenerationen hinweg.

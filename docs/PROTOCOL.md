@@ -1,15 +1,15 @@
-# Hushlink wire protocol v3
+# Hushlink wire protocol v4
 
 This document describes `src/protocol.rs`; it is not an external security audit.
 Application traffic travels only through Windows Bluetooth Classic RFCOMM. The
-in-memory byte transport exists only in tests. Wire v3 requires Hushlink v0.3 or
+in-memory byte transport exists only in tests. Wire v4 requires Hushlink v0.4 or
 later on **both** devices. It deliberately rejects older wire prefixes rather
 than downgrading or silently omitting file-transfer consent. Vault migration is
 independent of the wire version; existing pinned contact identities are retained.
 
 ## Framing and handshake
 
-Each peer first writes the five bytes `48 55 53 48 03` (`HUSH`, version 3), then
+Each peer first writes the five bytes `48 55 53 48 04` (`HUSH`, version 4), then
 reads the same prefix. Every subsequent handshake or transport message is a
 4-byte unsigned big-endian length followed by exactly that many bytes. Valid
 lengths are 1–32768 bytes, rejected before allocation; the underlying transport
@@ -20,7 +20,7 @@ messages.
 
 The pinned snow implementation uses
 `Noise_XX_25519_ChaChaPoly_SHA256`, prologue
-`Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
+`Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
 identity lives in the encrypted profile; ephemeral handshake keys are newly
 generated on every connection. snow's `into_transport_mode` produces distinct
 send/receive cipher states. The application never reads, resets, serializes or
@@ -46,6 +46,9 @@ byte, then the following payload. Integers below are unsigned big-endian.
 | `0B` FileCancel | Exactly 16 file ID bytes | Either party stops an active file; also handles a cancellation crossing completion; exactly once |
 | `0C` FileCancelAck | Exactly 16 file ID bytes | Acknowledges one local cancellation after the peer stopped its transfer; exactly once |
 | `0D` FileResume | 16-byte ID, 8-byte offset, 32-byte SHA-256 of stored prefix | Explicit renewed recipient consent; outgoing offer; 0 < offset ≤ offered size; exactly once |
+| `0E` Action | 16-byte operation ID followed by the bounded action below | Both confirmations; unique shared-namespace ID |
+| `0F` ActionAck | Exactly 16 operation-ID bytes | One pending action; durable encrypted persistence first |
+| `10` Typing | 4-byte big-endian sequence, 1-byte boolean 0/1 | Both confirmations; exact next sequence starting at 1 |
 
 Text limits count UTF-8 bytes, not characters. Newlines, umlauts and emoji are
 supported in chat. IDs come from the OS CSPRNG. Chat and file offers share an ID
@@ -130,8 +133,8 @@ before their first chat or file transfer. SHA-256 is computed over the exact
 concatenation:
 
 ```
-"Hushlink identity fingerprint\0v3\0"
-|| "Hushlink/v3/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
+"Hushlink identity fingerprint\0v4\0"
+|| "Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
 || min(local_static_public, remote_static_public)
 || max(local_static_public, remote_static_public)
 ```
@@ -225,3 +228,44 @@ receipt, the recipient can revalidate an already complete file and acknowledge
 it again in the new session without duplicate history, unread counts or files.
 Explicit cancel/reject clears received checkpoint bytes; history deletion or
 contact removal deletes their checkpoint records as well.
+
+## Conversation operations introduced in v4
+
+The Action body starts with a one-byte kind and the referenced 16-byte message ID.
+Reply (kind 1) appends UTF-8 text, 1–16384 bytes and nonempty after trimming.
+Edit (kind 2) appends a 4-byte big-endian revision followed by bounded UTF-8 text.
+React (kind 3) appends the same revision followed by exactly one of the fixed
+UTF-8 values: empty (clear), 👍, ❤️, 😂, 🎉, 😮, 😢, ✅. NUL and invalid UTF-8 are
+rejected. Edit/reaction revisions are 1–1000, exactly one above the stored value.
+These operations share the message/file ID namespace and all frame budgets.
+
+The runtime binds every operation to the authenticated contact. Remote edits may
+only change that contact's own received text messages; attachments cannot be
+edited. A reply links the original ID without transmitting an extra plaintext
+quote. If the other party no longer has the original, it displays an explicit
+missing-reference label. Pins and search are entirely local and encrypted at rest.
+
+Outgoing operations are persisted before a worker may write them. Their changes
+remain visibly unconfirmed until ActionAck; a reply has the normal message delivery
+states. Up to 64 pending operations survive disconnect/lock/restart and can be
+explicitly retried after a fresh mutually trusted session. There is no automatic
+retransmission and no serialization of cipher counters. A session never sends the
+same operation twice. Receivers keep up to 10000 encrypted receipt records binding
+contact, operation ID and SHA-256 of the complete canonical operation. A matching
+retry in a fresh session is acknowledged without a second mutation, unread count
+or notification; a reused ID with different content or contact is rejected.
+Receipt IDs/digests remain after local message/history deletion so late retries
+cannot recreate removed replies. Forgetting the contact also removes its receipts.
+At the receipt limit remove/reconfirm the contact or use a new profile.
+
+Typing is optional, disabled by default, contains no draft text and is sent at most
+once every three seconds while typing. A false state ends it; receiving nothing
+for six seconds clears the UI indicator. Each direction enforces an exact increasing
+sequence and the common encrypted-frame limit. Incoming typing, actions and receipts
+before mutual trust or after closure are rejected. All malformed, manipulated,
+replayed or state-invalid controls abort the session.
+
+The camera QR payload is `HUSHLINK:VERIFY:4:` followed by all 64 uppercase hexadecimal
+fingerprint digits without spaces. It binds the same canonical identities and v4
+context as the text display. It is never opened as a URL or treated as an automatic
+connection approval. Both users still confirm independently.

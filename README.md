@@ -4,6 +4,24 @@ Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversan
 
 **Vorabversion:** Die automatischen Prüfungen und Windows-Builds stehen im jeweiligen [Actions-Lauf](https://github.com/747elias/Hushlink/actions). Ein erfolgreicher Build ist kein Bluetooth-Hardwaretest. Der konkrete Zwei-PC-Testplan ist [hier](docs/MANUAL-TEST.md) beschrieben. Es besteht keine externe Sicherheitsprüfung.
 
+## Entwicklungsstand v0.4.0
+
+Auf `feature/rich-chat-hello-signing` sind zusätzlich Antworten/Zitate,
+Emoji-Reaktionen, gekennzeichnete Bearbeitungen, optionale Schreibanzeige,
+Volltextsuche und gemerkte Nachrichten implementiert. Dazu kommen Kontakt-
+Stummschaltung, Anfragebegrenzung, Übertragungsrate/Restzeit, bestätigter
+Bildversand aus der Zwischenablage, QR-/Kameravergleich, optionaler kryptografisch
+gebundener Windows-Hello-Zugang sowie verschlüsselte automatische Sicherungen
+mit Wiederherstellung und Speicherverwaltung.
+
+**Noch kein v0.4-Release:** Der Nutzer besitzt noch kein Code-Signing-Zertifikat
+oder verifizierten Dienst. Die Signierpipeline ist vorbereitet und blockiert
+unsignierte Veröffentlichungen. [Einrichtung und externer Schritt](docs/SIGNING.md).
+Die zuletzt veröffentlichten v0.3-Downloads unten enthalten diese Erweiterungen
+noch nicht. Konkrete Nachweise und verbleibende Hardwaretests stehen im
+[Prüfstand](docs/VALIDATION.md), [v0.4-Arbeitsstand](docs/RELEASE-v0.4.0.md) und
+[manuellen Testablauf](docs/MANUAL-TEST.md).
+
 ## Starten und benutzen
 
 1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v0.3.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
@@ -32,9 +50,51 @@ Die Anwendung ist nicht mit einem vertrauenswürdigen Herausgeberzertifikat sign
 
 Der Standardpfad liegt im lokalen Windows-App-Datenordner (`%LOCALAPPDATA%\Hushlink\Hushlink\data\profile.vault`), nicht neben der EXE. In den Einstellungen lässt sich der Speicherort wählen. Profil, private Schlüssel, Kontakte, Nachrichten und Anhänge liegen gemeinsam in dieser verschlüsselten Datei. `hushlink-settings.json` im Standardordner enthält ausschließlich den Startverweis auf den Pfad und nicht geheime Desktop-Einstellungen. Eine leere `.lock`-Datei enthält keine Chatdaten. Nur ausdrücklich exportierte Anhänge erzeugen Klartextdateien. Keine automatischen Klartext-Backups, Chat-Logs oder Crash-Reports. Windows kann unabhängig davon Speicherabbilder, Auslagerungsdateien und Systembackups erzeugen.
 
-Den verschlüsselten Tresor nur bei geschlossener App sichern. Backups benötigen dasselbe Passwort. Eine beschädigte oder von aussen geänderte Datei wird nicht automatisch ersetzt. Betriebssystemverschlüsselung wie BitLocker ergänzt den App-Tresor. Ein entsperrtes oder kompromittiertes Gerät bleibt ein Risiko. [SECURITY.md](SECURITY.md) beschreibt das Bedrohungsmodell und die Grenzen einschliesslich Metadaten und lokal gespeicherter Nachrichten.
+Für eine manuelle Explorer-Kopie den Tresor zuerst schliessen. Ab v0.4 erzeugt die App selbst geprüfte verschlüsselte Sicherungen; jede Kopie benötigt das zum Sicherungszeitpunkt gültige Passwort. Eine beschädigte oder von aussen geänderte Datei wird nicht automatisch ersetzt. Betriebssystemverschlüsselung wie BitLocker ergänzt den App-Tresor. Ein entsperrtes oder kompromittiertes Gerät bleibt ein Risiko. [SECURITY.md](SECURITY.md) beschreibt das Bedrohungsmodell und die Grenzen einschliesslich Metadaten und lokal gespeicherter Nachrichten.
 
 Vor dem Wechsel auf v0.3 den geschlossenen Tresor sichern. v0.3 liest vorhandene v0.1-/v0.2-Profile, speichert jedoch ein erweitertes Format für die neue App. Beide Chatpartner müssen v0.3 verwenden. Bereits bestätigte Identitätsschlüssel bleiben vertrauenswürdig; neue und geänderte Kontakte brauchen weiterhin den beidseitigen Codevergleich. Deinstallation entfernt die App, bewahrt Tresore und Einstellungen.
+
+## Bedienung der Erweiterungen v0.4
+
+- Unter Nachrichten **Antworten**, **Reaktion** oder bei eigenen Texten
+  **Bearbeiten** wählen. Änderungen bleiben bis zur verschlüsselten Bestätigung
+  als unbestätigt gekennzeichnet. Nach Abbruch neu verbinden und ausstehende
+  Änderungen im Chat explizit erneut übertragen. Der ursprüngliche Text kann bei
+  der Gegenstelle oder in Sicherungen weiterhin als Kopie vorhanden sein.
+- Mit **Merken** Nachrichten lokal anheften. Suchfeld, **Alle Kontakte** und
+  **Nur gemerkte** filtern den entsperrten Verlauf; der Index bleibt im Speicher.
+- In Einstellungen die standardmässig ausgeschaltete Schreibanzeige einschalten.
+  Unter Kontakt verwalten Hinweise für eine Stunde/einen Tag oder dauerhaft
+  stummschalten. Ungelesene Zähler bleiben sichtbar. Unbekannte Anfragen lassen
+  sich zeitweise oder dauerhaft sperren; ohne Sperre höchstens eine alle zehn Sekunden.
+- Nach Kopieren eines Screenshots **Strg+V** im Nachrichtenfeld oder **Bild einfügen**
+  wählen. Bis 16 Megapixel und 20 MiB PNG. Erst **Bild ausdrücklich anbieten**
+  überträgt das Angebot; die Gegenstelle muss annehmen. Keine Klartext-Temporärdatei.
+- Beim ersten Sicherheitsvergleich **QR-Code und Kameravergleich** wählen, den
+  Code des anderen PCs scannen und weiterhin auf beiden Geräten bestätigen.
+  Kamera nur während der bewussten Prüfung; Nummer bei mehreren Kameras wechseln.
+  Windows muss Desktop-Apps Kamerazugriff erlauben. Keine zusätzliche Laufzeit
+  oder Paketregistrierung; unkomprimierte Media-Foundation-Kameraformate nötig.
+  Windows N/KN benötigt nur für die Kamerafunktion das optionale Microsoft Media
+  Feature Pack; die verzögert geladenen Kamera-DLLs sind keine Chat-Startvoraussetzung.
+- Optional in Einstellungen mit aktuellem Passwort **Windows Hello einrichten**.
+  Funktioniert nur mit einem geeigneten Passport-KSP und erneuter Bestätigung
+  bei jedem privaten Zugriff. Bei fehlender Unterstützung Passwort verwenden.
+  [Technische Voraussetzungen und Grenzen](docs/WINDOWS-HELLO.md).
+- Sicherungsordner, Intervall und Aufbewahrung wählen (Standard täglich/fünf
+  Kopien). Sicherungen laufen nur entsperrt und enthalten ausschliesslich
+  verschlüsselten Ciphertext. Im gesperrten Zustand **Verschlüsselte Sicherung
+  wiederherstellen** wählen: Quelldatei, neues freies Ziel und damaliges Passwort.
+  Bestehende Tresore werden nicht überschrieben. Alte Sicherungen bleiben mit
+  alten Zugangsschlüsseln lesbar.
+- **Speicherübersicht und gezieltes Löschen** entfernt einzelne lokale Einträge
+  samt Anhang nach Trennung. Gegenstelle, Exporte und ältere Sicherungen bleiben
+  erhalten. Verschlüsselte Bestätigungs-IDs/Digests verhindern das Wiederanlegen
+  gelöschter Antworten durch späte Wiederholungen; Kontaktentfernung löscht sie mit.
+
+Beide PCs brauchen v0.4 für Protokoll 4. Vor dem ersten Speichern mit v0.4 eine
+verschlüsselte Kopie behalten: Profilschema 4 wird von älteren Apps abgewiesen.
+Hello-Einrichtung erweitert die Hülle auf Version 2; Passwortzugang bleibt erhalten.
 
 ## Bauen
 
@@ -63,6 +123,7 @@ Unter Linux lassen sich die plattformunabhängigen Protokoll-, Tresor- und Akteu
 - **Windows-Sperrüberwachung noch nicht bereit:** Kurz warten und erneut versuchen. Wenn die Meldung bleibt, Windows-Sitzungsdienste und Richtlinien prüfen und die App neu starten. Das Profil wird ohne aktive Sperrüberwachung nicht entsperrt.
 - **Profil bereits geöffnet:** Andere Hushlink-Instanz schliessen. Eine verbleibende leere Sperrdatei ist normal; die Betriebssystem-Dateisperre wird beim Prozessende freigegeben.
 - **Tresor voll:** Alte lokale Verläufe samt Anhängen löschen. Grenzen: 128 MiB verschlüsselter Tresor, insgesamt 80 MiB Anhangsdaten, 1.000 Anhänge, 10.000 Nachrichten, 500 Kontakte, 16 KiB Text pro Nachricht. Sitzungen sind ebenfalls begrenzt; bei einer langen Unterhaltung neu verbinden.
+- **Hello/Kamera nicht verfügbar:** Windows-Hello-Einrichtung und Kamerazugriff für Desktop-Apps prüfen. Bei ungeeigneten Treibern/Providern Passwort und vollständigen manuellen Codevergleich verwenden; Hushlink umgeht keine Schutzrichtlinie.
 - **Update nicht möglich:** Internet/GitHub-Erreichbarkeit prüfen oder den neuen Installer manuell aus Releases laden. Updates benötigen keine Zugangsdaten. Bei Fehlern bleibt die bisherige App nutzbar. Für manuelle Installation eine noch laufende Instanz über das Tray beenden. Keine Sicherheitswarnung durch Eingabe eines GitHub-Tokens umgehen.
 
 ## Architektur und Mitwirkung

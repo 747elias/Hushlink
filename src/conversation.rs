@@ -208,7 +208,7 @@ pub fn apply(
     if !outgoing {
         anyhow::ensure!(
             profile.action_receipts.len() < 10_000,
-            "Bestätigungsgrenze erreicht. Verlauf bereinigen."
+            "Bestätigungsgrenze erreicht. Kontakt nach unabhängiger Prüfung entfernen und neu bestätigen oder ein neues Profil verwenden."
         );
     }
     match action {
@@ -301,4 +301,110 @@ pub fn apply(
         });
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+    fn profile() -> anyhow::Result<crate::vault::Profile> {
+        let mut p = crate::vault::Profile::new("synthetic profile".into(), [1; 32], [2; 32]);
+        p.contacts.push(crate::vault::Contact {
+            id: hex::encode([3; 32]),
+            display_name: "synthetic contact".into(),
+            identity_key: [3; 32],
+            bluetooth_address: "synthetic address".into(),
+            alias: String::new(),
+            favorite: false,
+            unread: 0,
+            muted_until_ms: 0,
+        });
+        p.messages.push(serde_json::from_value(serde_json::json!({"id":hex::encode([4;16]),"contact_id":hex::encode([3;32]),"text":"SYNTHETIC_ORIGINAL_04","timestamp_ms":1,"outgoing":true,"status":"Received"}))?);
+        Ok(p)
+    }
+    #[test]
+    fn edits_reactions_and_receipts_enforce_ownership_revision_and_full_action_binding()
+    -> anyhow::Result<()> {
+        let mut p = profile()?;
+        let c = hex::encode([3; 32]);
+        let target = hex::encode([4; 16]);
+        assert!(
+            apply(
+                &mut p,
+                &c,
+                &hex::encode([5; 16]),
+                &Action::Edit {
+                    target: target.clone(),
+                    revision: 1,
+                    text: "FORGED_REMOTE_EDIT".into()
+                },
+                false,
+                2
+            )
+            .is_err()
+        );
+        assert!(
+            apply(
+                &mut p,
+                &c,
+                &hex::encode([5; 16]),
+                &Action::Edit {
+                    target: target.clone(),
+                    revision: 2,
+                    text: "SKIPPED_REVISION".into()
+                },
+                true,
+                2
+            )
+            .is_err()
+        );
+        assert_eq!(p.messages[0].text, "SYNTHETIC_ORIGINAL_04");
+        apply(
+            &mut p,
+            &c,
+            &hex::encode([5; 16]),
+            &Action::Edit {
+                target: target.clone(),
+                revision: 1,
+                text: "SYNTHETIC_EDIT_04".into(),
+            },
+            true,
+            2,
+        )?;
+        assert_eq!(p.messages[0].edit_revision, 1);
+        let id = hex::encode([6; 16]);
+        let action = Action::React {
+            target: target.clone(),
+            revision: 1,
+            reaction: "👍".into(),
+        };
+        assert!(apply(&mut p, &c, &id, &action, false, 3)?);
+        assert!(!apply(&mut p, &c, &id, &action, false, 3)?);
+        assert!(
+            apply(
+                &mut p,
+                &c,
+                &id,
+                &Action::React {
+                    target: target.clone(),
+                    revision: 1,
+                    reaction: "❤️".into()
+                },
+                false,
+                3
+            )
+            .is_err()
+        );
+        assert_eq!(p.messages[0].reaction_remote, "👍");
+        assert!(apply(&mut p, &c, &hex::encode([7; 16]), &action, false, 3).is_err());
+        let reply = Action::Reply {
+            target,
+            text: "SYNTHETIC_REPLY_04".into(),
+        };
+        let id = hex::encode([8; 16]);
+        apply(&mut p, &c, &id, &reply, false, 4)?;
+        p.messages.retain(|m| m.id != id);
+        assert!(!apply(&mut p, &c, &id, &reply, false, 4)?);
+        assert_eq!(p.messages.len(), 1);
+        Ok(())
+    }
 }

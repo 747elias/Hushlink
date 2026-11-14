@@ -117,3 +117,31 @@ jobs:
             work/published-verification/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+  verify-published-signatures:
+    name: Verify Authenticode on actual public downloads
+    needs: publish
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download actual assets and verify commit, checksums and both signatures
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HUSHLINK_PUBLISHER_SHA256: ${{ vars.HUSHLINK_PUBLISHER_SHA256 }}
+        run: |
+          python scripts/verify-release.py --repo "$env:GITHUB_REPOSITORY" --tag "$env:GITHUB_REF_NAME" --commit "$env:GITHUB_SHA" --directory work/published-signature-verification
+          if ($LASTEXITCODE -ne 0) { throw 'Published download verification failed' }
+          $base = "Hushlink-$env:GITHUB_REF_NAME-windows-x64"
+          ./scripts/verify-signature.ps1 -Path "work/published-signature-verification/$base.exe" -CertificateSha256 $env:HUSHLINK_PUBLISHER_SHA256
+          ./scripts/verify-signature.ps1 -Path "work/published-signature-verification/$base-setup.exe" -CertificateSha256 $env:HUSHLINK_PUBLISHER_SHA256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: published-signatures-${{ github.sha }}
+          path: work/published-signature-verification/verification.json
+          if-no-files-found: error
+          retention-days: 30

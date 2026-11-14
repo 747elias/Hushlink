@@ -122,7 +122,7 @@ jobs:
           New-Item -ItemType Directory -Force build-artifact | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/hushlink.exe build-artifact/hushlink.exe
           [System.IO.File]::WriteAllText("$pwd/build-artifact/build-commit.txt", "$env:GITHUB_SHA`n", [System.Text.UTF8Encoding]::new($false))
-          python scripts/check-pe.py build-artifact/hushlink.exe
+          python scripts/check-pe.py build-artifact/hushlink.exe --optional-camera
       - name: Verify prospective release packaging without publishing
         shell: pwsh
         run: |
