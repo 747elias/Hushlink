@@ -27,10 +27,49 @@ $fixtureHash = (Get-FileHash -LiteralPath $externalFixture -Algorithm SHA256).Ha
 
 Add-Type @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class HushlinkInstallerWindows {
+    private delegate bool WindowCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(WindowCallback callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder text, int count);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr handle);
+    public static IntPtr[] MainWindows(int process) {
+        var result = new List<IntPtr>();
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            var title = new StringBuilder(512);
+            GetWindowText(window, title, title.Capacity);
+            if (owner == process && title.ToString() == "Hushlink") result.Add(window);
+            return true;
+        }, IntPtr.Zero);
+        return result.ToArray();
+    }
+    public static string[] DescribeWindows(int process) {
+        var result = new List<string>();
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner == process) {
+                var title = new StringBuilder(512);
+                var name = new StringBuilder(256);
+                GetWindowText(window, title, title.Capacity);
+                GetClassName(window, name, name.Capacity);
+                result.Add($"HWND={window}; visible={IsWindowVisible(window)}; class={name}; title={title}");
+            }
+            return true;
+        }, IntPtr.Zero);
+        return result.ToArray();
+    }
 }
 '@
 
@@ -74,7 +113,10 @@ function Test-AppStartup([bool]$Tray) {
     Start-Sleep -Seconds 8
     $app.Refresh()
     if ($app.HasExited) { throw "Installed app exited during startup: $($app.ExitCode)" }
-    $visible = $app.MainWindowHandle -ne 0 -and [HushlinkInstallerWindows]::IsWindowVisible($app.MainWindowHandle)
+    [IO.File]::WriteAllLines((Join-Path $report "$label-windows.txt"), [HushlinkInstallerWindows]::DescribeWindows($app.Id))
+    $windows = @([HushlinkInstallerWindows]::MainWindows($app.Id))
+    if ($windows.Count -ne 1) { throw 'Installed app must own exactly one Hushlink main window.' }
+    $visible = [HushlinkInstallerWindows]::IsWindowVisible($windows[0])
     if ($Tray -and $visible) { throw '--tray unexpectedly displayed the main window.' }
     if (-not $Tray -and -not $visible) { throw 'Installed app did not expose a visible main window.' }
     Stop-TestProcess $app
@@ -154,7 +196,10 @@ try {
     if ($restarted.Count -ne 1) { throw 'Silent update did not restart exactly one installed Hushlink process.' }
     $restarted[0].Refresh()
     if ($restarted[0].HasExited) { throw 'Hushlink exited after the silent update.' }
-    if ($restarted[0].MainWindowHandle -ne 0 -and [HushlinkInstallerWindows]::IsWindowVisible($restarted[0].MainWindowHandle)) {
+    [IO.File]::WriteAllLines((Join-Path $report 'restart-windows.txt'), [HushlinkInstallerWindows]::DescribeWindows($restarted[0].Id))
+    $restartWindows = @([HushlinkInstallerWindows]::MainWindows($restarted[0].Id))
+    if ($restartWindows.Count -ne 1) { throw 'Restarted app must own exactly one Hushlink main window.' }
+    if ([HushlinkInstallerWindows]::IsWindowVisible($restartWindows[0])) {
         throw 'Silent update restarted with an unexpected visible window.'
     }
     if ((Get-StartupValue) -cne $expectedRun) { throw 'Update changed enabled autostart incorrectly.' }
