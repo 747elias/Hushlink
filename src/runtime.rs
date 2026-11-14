@@ -47,6 +47,11 @@ pub enum Command {
         retention: u8,
         interval_minutes: u32,
     },
+    UnlockHello,
+    SetHello {
+        enabled: bool,
+        password: Zeroizing<String>,
+    },
     BackupNow,
     SendImage {
         data: Zeroizing<Vec<u8>>,
@@ -266,6 +271,7 @@ pub struct PartialView {
 }
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub hello_enabled: bool,
     pub backup_folder: String,
     pub backup_retention: u8,
     pub backup_interval_minutes: u32,
@@ -477,7 +483,10 @@ impl Runtime {
         let generation = self.hub.generation.load(Ordering::Acquire);
         if matches!(
             command,
-            Command::Create { .. } | Command::Unlock { .. } | Command::RestoreBackup { .. }
+            Command::Create { .. }
+                | Command::Unlock { .. }
+                | Command::RestoreBackup { .. }
+                | Command::UnlockHello
         ) {
             #[cfg(windows)]
             if !self.hub.watcher_ready.load(Ordering::Acquire)
@@ -848,6 +857,7 @@ impl Actor {
             return;
         };
         let profile = vault.profile();
+        self.view.hello_enabled = vault.has_hello();
         self.view.profile_exists = true;
         self.view.unlocked = true;
         self.view.profile_name.clone_from(&profile.display_name);
@@ -1196,6 +1206,22 @@ impl Actor {
                 self.vault = Some(result?);
                 self.after_unlock();
             }
+            Command::UnlockHello => {
+                anyhow::ensure!(
+                    self.path_error.is_none(),
+                    "Bitte zuerst einen gültigen Tresor auswählen."
+                );
+                anyhow::ensure!(self.vault.is_none(), "Der Tresor ist bereits entsperrt.");
+                self.hub.sensitive.store(true, Ordering::Release);
+                self.emit(Event::Busy(true));
+                let result = vault::Vault::open_hello(&self.path);
+                self.emit(Event::Busy(false));
+                if !self.current() {
+                    return Ok(());
+                }
+                self.vault = Some(result?);
+                self.after_unlock();
+            }
             Command::Unlock { password } => {
                 anyhow::ensure!(
                     self.path_error.is_none(),
@@ -1282,6 +1308,34 @@ impl Actor {
     }
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::SetHello { enabled, password } => {
+                self.emit(Event::Busy(true));
+                let hub = self.hub.clone();
+                let generation = self.generation;
+                let vault = self
+                    .vault
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("Tresor gesperrt."))?;
+                let result = if *enabled {
+                    vault.enable_hello(password.as_str(), || {
+                        hub.generation.load(Ordering::Acquire) != generation
+                    })
+                } else {
+                    vault.disable_hello(password.as_str())
+                };
+                self.emit(Event::Busy(false));
+                if !self.current() {
+                    return Ok(());
+                }
+                self.sync_profile();
+                result?;
+                self.view.status = if *enabled {
+                    "Windows Hello wurde kryptografisch mit dem Tresor verbunden"
+                } else {
+                    "Windows Hello wurde für diesen Tresor deaktiviert"
+                }
+                .into();
+            }
             Command::SetBackups {
                 folder,
                 retention,

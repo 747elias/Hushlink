@@ -1,6 +1,9 @@
 //! Public-release updater. This module never reads a vault or starts an installer
 //! without an explicit call to `launch_installer` from the desktop UI.
 
+#[cfg(windows)]
+mod signature;
+
 use anyhow::{Context, Result, bail, ensure};
 use rand::{RngCore, rngs::OsRng};
 use reqwest::{Url, blocking::Client, redirect::Policy};
@@ -498,6 +501,7 @@ pub fn launch_installer(update: &VerifiedUpdate) -> Result<()> {
         // Keep this read-only handle open across CreateProcess. Windows refuses
         // replacement or writes between the final hash check and process start.
         revalidate(&mut file, update.release.installer_size, &update.digest)?;
+        signature::verify(&file, &update.staging.executable)?;
         std::process::Command::new(&update.staging.executable)
             .args([
                 "/VERYSILENT",

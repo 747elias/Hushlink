@@ -302,6 +302,7 @@ impl App {
                     }
                 }
             });
+            if existing && cfg!(windows) && ui.add_enabled(!self.busy,egui::Button::new("Mit Windows Hello entsperren")).clicked() && self.command(Command::UnlockHello){self.password.zeroize();self.busy=true;clear_ui_memory(ui.ctx());}
             if self.busy { ui.spinner(); ui.label("Dein Tresor wird vorbereitet …"); }
             self.show_error(ui);
             ui.add_space(10.0);
@@ -766,6 +767,13 @@ impl App {
             self.storage_settings(ui);
             ui.separator();
             self.rich_settings(ui);
+            ui.separator();
+            ui.heading("Windows Hello");
+            ui.label(if self.view.hello_enabled{"Windows Hello ist für diesen Tresor eingerichtet."}else{"Optional: Tresorschlüssel mit Windows Hello auf diesem Benutzerkonto schützen."});
+            ui.label(RichText::new("Benötigt einen geeigneten Windows-Hello-Schlüsselanbieter mit Bestätigung bei jedem Zugriff. Ohne Unterstützung bleibt das Passwort verfügbar. Auf anderen PCs und für Sicherungen das damalige Passwort verwenden.").small().color(MUTED));
+            ui.label("Aktuelles Passwort zum Einrichten oder Deaktivieren");
+            ui.add(egui::TextEdit::singleline(&mut *self.password).password(true).id_salt("hello_password"));
+            if ui.add_enabled(!self.busy && (cfg!(windows) || self.view.hello_enabled),egui::Button::new(if self.view.hello_enabled{"Windows Hello deaktivieren"}else{"Windows Hello einrichten"})).clicked() && self.command(Command::SetHello{enabled:!self.view.hello_enabled,password:self.password.clone()}){self.password.zeroize();self.busy=true;clear_ui_memory(ui.ctx());}
             ui.separator();
             ui.heading("Passwort ändern");
             ui.label("Bisheriges Passwort");

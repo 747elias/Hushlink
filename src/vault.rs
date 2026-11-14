@@ -318,6 +318,7 @@ impl KdfParameters {
 }
 
 struct Envelope {
+    extension: Vec<u8>,
     header: [u8; HEADER_LEN],
     body: Vec<u8>,
 }
@@ -330,15 +331,42 @@ impl Envelope {
         let mut header = [0; HEADER_LEN];
         header.copy_from_slice(&bytes[..HEADER_LEN]);
         if &header[..8] != MAGIC
-            || u16::from_le_bytes([header[8], header[9]]) != FORMAT_VERSION
+            || ![FORMAT_VERSION, 2].contains(&u16::from_le_bytes([header[8], header[9]]))
             || header[10] != 1
             || header[11] != 1
         {
             return Err(VaultError::Format("unbekannte Version oder Kennung"));
         }
+        let version = u16::from_le_bytes([header[8], header[9]]);
+        let (extension, offset) = if version == 2 {
+            let length = read_u32(bytes, HEADER_LEN)? as usize;
+            if !(4..=4096).contains(&length) {
+                return Err(VaultError::Format("ungültiger Schlüsselplatz"));
+            }
+            let end = (HEADER_LEN + 4)
+                .checked_add(length)
+                .ok_or(VaultError::Limit)?;
+            let extension = bytes
+                .get(HEADER_LEN + 4..end)
+                .ok_or(VaultError::Format("unvollständiger Schlüsselplatz"))?
+                .to_vec();
+            let slot = serde_json::from_slice::<Option<crate::hello::Slot>>(&extension)
+                .map_err(|_| VaultError::Format("ungültiger Schlüsselplatz"))?;
+            if let Some(slot) = slot {
+                slot.validate()
+                    .map_err(|_| VaultError::Format("ungültiger Schlüsselplatz"))?;
+            }
+            (extension, end)
+        } else {
+            (Vec::new(), HEADER_LEN)
+        };
         let envelope = Self {
             header,
-            body: bytes[HEADER_LEN..].to_vec(),
+            extension,
+            body: bytes
+                .get(offset..)
+                .ok_or(VaultError::Format("unvollständiger Tresor"))?
+                .to_vec(),
         };
         envelope.kdf()?.params()?;
         let length = read_u32(&envelope.header, 88)? as usize;
@@ -359,12 +387,21 @@ impl Envelope {
     }
 
     fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(HEADER_LEN + self.body.len());
-        bytes.extend_from_slice(&self.header);
+        let mut bytes = self.aad();
         bytes.extend_from_slice(&self.body);
         bytes
     }
 
+    fn aad(&self) -> Vec<u8> {
+        envelope_aad(&self.header, &self.extension)
+    }
+    fn hello_slot(&self) -> Result<Option<crate::hello::Slot>> {
+        if self.extension.is_empty() {
+            return Ok(None);
+        }
+        serde_json::from_slice(&self.extension)
+            .map_err(|_| VaultError::Format("ungültiger Schlüsselplatz"))
+    }
     fn unwrap_key(&self, password: &str) -> Result<Zeroizing<[u8; 32]>> {
         let password_key = derive_key(password, &self.header[24..40], self.kdf()?)?;
         let cipher = XChaCha20Poly1305::new_from_slice(password_key.as_ref())
@@ -396,7 +433,7 @@ impl Envelope {
                     XNonce::from_slice(&self.header[64..88]),
                     Payload {
                         msg: &self.body,
-                        aad: &self.header,
+                        aad: &self.aad(),
                     },
                 )
                 .map_err(|_| VaultError::Authentication)?,
@@ -467,6 +504,60 @@ impl Vault {
         })
     }
 
+    pub fn has_hello(&self) -> bool {
+        self.envelope.hello_slot().is_ok_and(|slot| slot.is_some())
+    }
+    pub fn open_hello(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let lock_file = lock_file(&path)?;
+        let bytes = bounded_read(&path)?;
+        let envelope = Envelope::decode(&bytes)?;
+        let slot=envelope.hello_slot()?.ok_or_else(||anyhow::anyhow!("Für diesen Tresor ist Windows Hello nicht eingerichtet. Bitte das Passwort verwenden."))?;
+        let key = crate::hello::unwrap(&slot)?;
+        let profile = envelope.decrypt_profile(&key)?;
+        Ok(Self {
+            path,
+            profile,
+            key,
+            envelope,
+            expected_digest: digest(&bytes),
+            relocation_uncertain: false,
+            _lock_file: lock_file,
+        })
+    }
+    pub fn enable_hello(
+        &mut self,
+        password: &str,
+        cancelled: impl Fn() -> bool,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.has_hello(), "Windows Hello ist bereits eingerichtet.");
+        let _verified = self.envelope.unwrap_key(password)?;
+        anyhow::ensure!(!cancelled(), "Einrichtung wegen Sperre abgebrochen.");
+        let slot = crate::hello::enroll(&self.key)?;
+        let result = (|| {
+            anyhow::ensure!(!cancelled(), "Einrichtung wegen Sperre abgebrochen.");
+            let extension = serde_json::to_vec(&Some(&slot))?;
+            let envelope = new_envelope_extended(password, &self.key, &self.profile, extension)?;
+            anyhow::ensure!(!cancelled(), "Einrichtung wegen Sperre abgebrochen.");
+            self.persist(envelope)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = crate::hello::remove(&slot);
+        }
+        result
+    }
+    pub fn disable_hello(&mut self, password: &str) -> anyhow::Result<()> {
+        let _verified = self.envelope.unwrap_key(password)?;
+        let old = self.envelope.hello_slot()?;
+        let envelope = new_envelope_extended(password, &self.key, &self.profile, b"null".to_vec())?;
+        self.persist(envelope)?;
+        if let Some(slot) = old {
+            crate::hello::remove(&slot).map_err(|_|anyhow::anyhow!("Windows Hello ist für diesen Tresor deaktiviert. Der frühere Windows-Schlüssel konnte auf diesem Gerät nicht entfernt werden; ältere Sicherungen können ihn noch verwenden."))?;
+        }
+        Ok(())
+    }
+
     pub fn profile(&self) -> &Profile {
         &self.profile
     }
@@ -495,7 +586,12 @@ impl Vault {
         // Authentication of the old key wrap is necessary even while unlocked.
         let _verified_key = self.envelope.unwrap_key(old_password)?;
         self.profile.schema_version = PROFILE_SCHEMA_VERSION;
-        let envelope = new_envelope(new_password, &self.key, &self.profile)?;
+        let envelope = new_envelope_extended(
+            new_password,
+            &self.key,
+            &self.profile,
+            self.envelope.extension.clone(),
+        )?;
         self.persist(envelope)
     }
 
@@ -799,6 +895,18 @@ fn derive_key(
 }
 
 fn new_envelope(password: &str, key: &[u8; 32], profile: &Profile) -> Result<Envelope> {
+    new_envelope_extended(password, key, profile, Vec::new())
+}
+
+fn new_envelope_extended(
+    password: &str,
+    key: &[u8; 32],
+    profile: &Profile,
+    extension: Vec<u8>,
+) -> Result<Envelope> {
+    if extension.len() > 4096 {
+        return Err(VaultError::Limit);
+    }
     validate_profile(profile)?;
     let plain =
         Zeroizing::new(serde_json::to_vec(profile).map_err(|_| VaultError::InvalidProfile)?);
@@ -809,7 +917,12 @@ fn new_envelope(password: &str, key: &[u8; 32], profile: &Profile) -> Result<Env
     let parameters = KdfParameters::default();
     let mut header = [0; HEADER_LEN];
     header[..8].copy_from_slice(MAGIC);
-    header[8..10].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
+    let version = if extension.is_empty() {
+        FORMAT_VERSION
+    } else {
+        2
+    };
+    header[8..10].copy_from_slice(&version.to_le_bytes());
     header[10] = 1; // Argon2id v19
     header[11] = 1; // XChaCha20-Poly1305
     header[12..16].copy_from_slice(&parameters.memory_kib.to_le_bytes());
@@ -830,7 +943,7 @@ fn new_envelope(password: &str, key: &[u8; 32], profile: &Profile) -> Result<Env
         )
         .map_err(|_| VaultError::Crypto)?;
     header[BASE_HEADER_LEN..HEADER_LEN].copy_from_slice(&wrapped);
-    encrypt_body(header, key, &plain)
+    encrypt_body_extended(header, key, &plain, extension)
 }
 
 fn update_body(envelope: &Envelope, key: &[u8; 32], profile: &Profile) -> Result<Envelope> {
@@ -846,21 +959,46 @@ fn update_body(envelope: &Envelope, key: &[u8; 32], profile: &Profile) -> Result
     let mut header = envelope.header;
     OsRng.fill_bytes(&mut header[64..88]);
     header[88..92].copy_from_slice(&(length as u32).to_le_bytes());
-    encrypt_body(header, key, &plain)
+    encrypt_body_extended(header, key, &plain, envelope.extension.clone())
 }
 
+#[cfg(test)]
 fn encrypt_body(header: [u8; HEADER_LEN], key: &[u8; 32], plain: &[u8]) -> Result<Envelope> {
+    encrypt_body_extended(header, key, plain, Vec::new())
+}
+fn envelope_aad(header: &[u8; HEADER_LEN], extension: &[u8]) -> Vec<u8> {
+    let mut aad = header.to_vec();
+    if u16::from_le_bytes([header[8], header[9]]) == 2 {
+        aad.extend_from_slice(&(extension.len() as u32).to_le_bytes());
+        aad.extend_from_slice(extension);
+    }
+    aad
+}
+fn encrypt_body_extended(
+    header: [u8; HEADER_LEN],
+    key: &[u8; 32],
+    plain: &[u8],
+    extension: Vec<u8>,
+) -> Result<Envelope> {
+    if HEADER_LEN + 4 + extension.len() + plain.len() + TAG_LEN > MAX_VAULT_BYTES {
+        return Err(VaultError::Limit);
+    }
+
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| VaultError::Crypto)?;
     let body = cipher
         .encrypt(
             XNonce::from_slice(&header[64..88]),
             Payload {
                 msg: plain,
-                aad: &header,
+                aad: &envelope_aad(&header, &extension),
             },
         )
         .map_err(|_| VaultError::Crypto)?;
-    Ok(Envelope { header, body })
+    Ok(Envelope {
+        header,
+        body,
+        extension,
+    })
 }
 
 fn read_u32(bytes: &[u8], start: usize) -> Result<u32> {
@@ -1720,6 +1858,64 @@ mod tests {
             assert!(validate_profile(&invalid).is_ok());
         }
         assert!(!path.exists());
+        Ok(())
+    }
+    #[test]
+    fn hello_extension_is_authenticated_and_password_fallback_survives_rewrap() -> TestResult {
+        let _serial = serial();
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("synthetic-hello.vault");
+        let key = Zeroizing::new([0x41; 32]);
+        // Synthetic public slot metadata tests the file format only. It never
+        // impersonates a working Windows Hello key or hardware enrollment.
+        let slot = crate::hello::Slot {
+            version: 1,
+            key_id: hex::encode([0x52; 16]),
+            wrapped_key: vec![0x63; 256],
+        };
+        let extension = serde_json::to_vec(&Some(&slot))?;
+        let envelope = new_envelope_extended(PASSWORD, &key, &profile(), extension.clone())?;
+        let bytes = envelope.encode();
+        assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), 2);
+        fs::write(&path, &bytes)?;
+        let mut vault = Vault::open(&path, PASSWORD)?;
+        assert!(vault.has_hello());
+        vault.change_password(PASSWORD, OTHER_PASSWORD)?;
+        assert_eq!(vault.envelope.extension, extension);
+        drop(vault);
+        assert!(Vault::open(&path, PASSWORD).is_err());
+        let vault = Vault::open(&path, OTHER_PASSWORD)?;
+        assert_eq!(vault.profile().messages[0].text, MARKER);
+        drop(vault);
+        let mut changed = fs::read(&path)?;
+        let offset = HEADER_LEN + 4 + extension.iter().position(|b| *b == b'5').ok_or("slot id")?;
+        changed[offset] = b'6';
+        fs::write(&path, &changed)?;
+        assert!(matches!(
+            Vault::open(&path, OTHER_PASSWORD),
+            Err(VaultError::Authentication)
+        ));
+        assert_eq!(fs::read(&path)?, changed);
+        let mut invalid = bytes.clone();
+        invalid[HEADER_LEN..HEADER_LEN + 4].copy_from_slice(&4097u32.to_le_bytes());
+        assert!(Envelope::decode(&invalid).is_err());
+        assert!(
+            crate::hello::Slot {
+                version: 1,
+                key_id: "00".into(),
+                wrapped_key: vec![0; 256]
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            crate::hello::unwrap(&crate::hello::Slot {
+                version: 1,
+                key_id: hex::encode([1; 16]),
+                wrapped_key: vec![]
+            })
+            .is_err()
+        );
         Ok(())
     }
 }

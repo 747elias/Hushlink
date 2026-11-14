@@ -2,16 +2,44 @@ name: Required checks
 
 on:
   workflow_call:
+    inputs:
+      sign:
+        description: Require trusted publisher signatures before native smoke and packaging
+        type: boolean
+        default: false
+    secrets:
+      SIGNPATH_API_TOKEN:
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   windows:
     name: Windows MSVC · format, lint, tests, release build
     runs-on: windows-2025
     timeout-minutes: 45
+    env:
+      HUSHLINK_PUBLISHER_SHA256: ${{ inputs.sign && vars.HUSHLINK_PUBLISHER_SHA256 || '' }}
     steps:
+      - name: Require authorized signing configuration
+        if: inputs.sign
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_APP_ARTIFACT_SLUG: ${{ vars.SIGNPATH_APP_ARTIFACT_SLUG }}
+          SIGNPATH_SETUP_ARTIFACT_SLUG: ${{ vars.SIGNPATH_SETUP_ARTIFACT_SLUG }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_API_TOKEN)) { throw 'Trusted signing is blocked: SIGNPATH_API_TOKEN has not been configured. See docs/SIGNING.md.' }
+          foreach ($name in @('SIGNPATH_ORGANIZATION_ID', 'SIGNPATH_PROJECT_SLUG', 'SIGNPATH_SIGNING_POLICY_SLUG', 'SIGNPATH_APP_ARTIFACT_SLUG', 'SIGNPATH_SETUP_ARTIFACT_SLUG')) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value) -or $value -notmatch '^[a-zA-Z0-9_-]+$') { throw "Required signing variable is missing or invalid: $name" }
+          }
+          if ($env:HUSHLINK_PUBLISHER_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected publisher certificate SHA-256 is missing. An unsigned release is forbidden.' }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -41,6 +69,33 @@ jobs:
         run: cargo test --locked --target x86_64-pc-windows-msvc
       - name: Build native Windows release EXE
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Upload only the unsigned app for trusted signing
+        if: inputs.sign
+        id: unsigned-app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signing-app-${{ github.sha }}
+          path: target/x86_64-pc-windows-msvc/release/hushlink.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign the checked Windows application
+        if: inputs.sign
+        uses: SignPath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_ARTIFACT_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-app
+      - name: Verify the publisher and timestamp before native app smoke
+        if: inputs.sign
+        shell: pwsh
+        run: |
+          ./scripts/verify-signature.ps1 -Path signed-app/hushlink.exe -CertificateSha256 $env:HUSHLINK_PUBLISHER_SHA256
+          Copy-Item signed-app/hushlink.exe target/x86_64-pc-windows-msvc/release/hushlink.exe -Force
       - name: Cache successfully compiled dependencies before runtime smoke
         if: steps.rust-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -74,6 +129,42 @@ jobs:
           ./installer/install-compiler.ps1
           $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^\"]+)"\r?$').Groups[1].Value
           ./scripts/package.ps1 -Version "v$version" -Commit "$env:GITHUB_SHA"
+      - name: Prepare the compiled installer for signing
+        if: inputs.sign
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force signing-input | Out-Null
+          $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^\"]+)"\r?$').Groups[1].Value
+          Copy-Item "release-assets/Hushlink-v$version-windows-x64-setup.exe" signing-input/Hushlink-setup.exe
+      - name: Upload only the compiled installer for trusted signing
+        if: inputs.sign
+        id: unsigned-setup
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signing-setup-${{ github.sha }}
+          path: signing-input/Hushlink-setup.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign the Windows installer
+        if: inputs.sign
+        uses: SignPath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_SETUP_ARTIFACT_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-setup
+      - name: Verify the signed installer and finalize exact release bytes
+        if: inputs.sign
+        shell: pwsh
+        run: |
+          ./scripts/verify-signature.ps1 -Path signed-setup/Hushlink-setup.exe -CertificateSha256 $env:HUSHLINK_PUBLISHER_SHA256
+          $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^\"]+)"\r?$').Groups[1].Value
+          Copy-Item signed-setup/Hushlink-setup.exe "release-assets/Hushlink-v$version-windows-x64-setup.exe" -Force
+          ./scripts/finalize-package.ps1 -Version "v$version" -Commit "$env:GITHUB_SHA"
       - name: Install, start, update and uninstall the actual Windows installer
         shell: pwsh
         run: |

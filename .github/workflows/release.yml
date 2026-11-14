@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,6 +17,10 @@ jobs:
   # the tag's exact commit, independently of any branch CI result.
   checks:
     uses: ./.github/workflows/checks.yml
+    with:
+      sign: true
+    secrets:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
   package:
     name: Verify and package checked Windows binary
     needs: checks
@@ -32,6 +37,8 @@ jobs:
       # Publish exactly the installer bytes that passed the required install smoke.
       # Rebuilding it here would discard that evidence because timestamps can differ.
       - name: Verify and reuse the exact checked release assets
+        env:
+          HUSHLINK_PUBLISHER_SHA256: ${{ vars.HUSHLINK_PUBLISHER_SHA256 }}
         shell: pwsh
         run: |
           $builtCommit = (Get-Content build-artifact/build-commit.txt -Raw).Trim()
@@ -41,6 +48,8 @@ jobs:
           if (-not (Test-Path "docs/RELEASE-$env:GITHUB_REF_NAME.md")) { throw 'Release notes are missing' }
           New-Item -ItemType Directory -Force release-assets | Out-Null
           Copy-Item build-artifact/release-assets/* release-assets/
+          ./scripts/verify-signature.ps1 -Path "release-assets/Hushlink-v$version-windows-x64.exe" -CertificateSha256 "$env:HUSHLINK_PUBLISHER_SHA256"
+          ./scripts/verify-signature.ps1 -Path "release-assets/Hushlink-v$version-windows-x64-setup.exe" -CertificateSha256 "$env:HUSHLINK_PUBLISHER_SHA256"
           python scripts/verify-package.py --directory release-assets --tag "$env:GITHUB_REF_NAME" --commit "$env:GITHUB_SHA"
           if ($LASTEXITCODE -ne 0) { throw 'Checked release assets failed verification' }
           if ((Get-FileHash "release-assets/Hushlink-v$version-windows-x64.exe").Hash -cne (Get-FileHash build-artifact/hushlink.exe).Hash) {

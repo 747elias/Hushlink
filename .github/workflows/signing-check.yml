@@ -1,0 +1,16 @@
+name: Qualify signed Windows build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: signing-check-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  signed-checks:
+    uses: ./.github/workflows/checks.yml
+    with:
+      sign: true
+    secrets:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}

@@ -13,3 +13,5 @@ Signierstatus zu Beginn: lokal keine passende Konfiguration gefunden. Die GitHub
 Zwischenstand: Nutzer bestätigt, noch kein Zertifikat oder Signierdienst. Antworten, Bearbeitungen, Reaktionen, optionale Schreibanzeige, Suche, Pins, Kontakt-Stummschaltung, Anfragebegrenzung und Rate/Restzeit implementiert; strenger lokaler Clippy erfolgreich, erweiterte Tests laufen. Windows-/UI-Nachweis für v0.4 noch ausstehend.
 
 Zweiter Schritt: verschlüsselte Sicherungen mit Aufbewahrung/Wiederherstellung, Speicherübersicht/gezieltes Löschen, bestätigter Bildversand aus Zwischenablage und vollständiger QR-Vergleich implementiert. Backup-/PNG-/QR-Roundtrip und korrigierter Migrationstest lokal erfolgreich; Kamera-Hardware noch ungetestet.
+
+Dritter Schritt: kryptografisch gebundener Hello-Zugang und authentifizierte Hülle 2 implementiert; Passwort-/Manipulations-/Schlüsselplatztests lokal erfolgreich. SignPath-Ablauf mit zwei Signierstufen, Windows-Verifikation, Zertifikatsbindung im Updater und Veröffentlichungs-Schranke vorbereitet. Reale Hello-/Kamera-/Bluetooth-Hardware und autorisierte Signierkonfiguration fehlen weiterhin.
