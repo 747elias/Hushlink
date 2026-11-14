@@ -215,6 +215,8 @@ pub struct View {
     pub notifications: bool,
     pub bluetooth_checked: bool,
     pub bluetooth_available: bool,
+    pub radio_connectable: bool,
+    pub radio_discoverable: bool,
     pub connecting: bool,
     pub vault_path: String,
     pub profile_exists: bool,
@@ -482,7 +484,7 @@ struct Background {
 impl Drop for Background {
     fn drop(&mut self) {
         match &mut self.event {
-            BackgroundEvent::Devices(Ok(devices)) => {
+            BackgroundEvent::Devices(Ok(devices), _) => {
                 for device in devices {
                     device.name.zeroize();
                     device.address.zeroize();
@@ -506,7 +508,7 @@ impl Drop for Background {
 enum BackgroundEvent {
     Empty,
     Availability(Result<transport::Availability, String>),
-    Devices(Result<Vec<transport::Device>, String>),
+    Devices(Result<Vec<transport::Device>, String>, Arc<AtomicBool>),
     Listening(Arc<AtomicBool>),
     Incoming(transport::Stream, transport::Device, Arc<AtomicBool>),
     Connected(
@@ -1121,7 +1123,13 @@ impl Actor {
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
             Command::RefreshBluetooth => {
+                anyhow::ensure!(
+                    self.view.bluetooth_checked,
+                    "Die Bluetooth-Prüfung läuft bereits."
+                );
                 self.view.bluetooth_checked = false;
+                self.view.bluetooth_available = false;
+                self.view.availability = "Bluetooth wird geprüft …".into();
                 self.check_bluetooth();
             }
             Command::CancelBluetooth => {
@@ -1221,7 +1229,7 @@ impl Actor {
                     let result = transport::discover(&flag).map_err(|e| e.to_string());
                     let _ = tx.send(Background {
                         generation,
-                        event: BackgroundEvent::Devices(result),
+                        event: BackgroundEvent::Devices(result, flag),
                     });
                 });
             }
@@ -1978,11 +1986,41 @@ impl Actor {
                 self.view.bluetooth_checked = true;
                 self.view.bluetooth_available = result.is_ok();
                 self.view.availability = match result {
-                    Ok(availability) => format!("Bluetooth: {}", availability.radio_name),
-                    Err(error) => error,
+                    Ok(availability) => {
+                        self.view.radio_connectable = availability.connectable;
+                        self.view.radio_discoverable = availability.discoverable;
+                        format!(
+                            "Bluetooth: {}{}",
+                            availability.radio_name,
+                            if availability.connectable {
+                                ""
+                            } else {
+                                " – Windows erlaubt derzeit keinen Empfang. Bluetooth-Einstellungen prüfen."
+                            }
+                        )
+                    }
+                    Err(error) => {
+                        self.view.radio_connectable = false;
+                        self.view.radio_discoverable = false;
+                        error
+                    }
                 };
             }
-            BackgroundEvent::Devices(result) => {
+            BackgroundEvent::Devices(result, flag) => {
+                if flag.load(Ordering::Acquire)
+                    || self
+                        .discovery_flag
+                        .as_ref()
+                        .is_none_or(|active| !Arc::ptr_eq(active, &flag))
+                {
+                    if let Ok(mut devices) = result {
+                        for d in &mut devices {
+                            d.name.zeroize();
+                            d.address.zeroize();
+                        }
+                    }
+                    return;
+                }
                 self.view.discovering = false;
                 self.discovery_flag = None;
                 match result {
@@ -3330,6 +3368,34 @@ mod tests {
             _lease: None,
         });
         Ok(receiver)
+    }
+
+    #[test]
+    fn cancelled_discovery_cannot_replace_a_new_assistant_search() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let (mut actor, _events) = actor_with_profile(&directory)?;
+        let old = Arc::new(AtomicBool::new(false));
+        let fresh = Arc::new(AtomicBool::new(false));
+        actor.discovery_flag = Some(fresh.clone());
+        actor.view.discovering = true;
+        actor.background(BackgroundEvent::Devices(
+            Ok(vec![transport::Device {
+                name: "stale synthetic".into(),
+                address: "01:23:45:67:89:AB".into(),
+            }]),
+            old,
+        ));
+        assert!(actor.view.discovering && actor.view.devices.is_empty());
+        actor.background(BackgroundEvent::Devices(
+            Ok(vec![transport::Device {
+                name: "fresh synthetic".into(),
+                address: "01:23:45:67:89:AC".into(),
+            }]),
+            fresh,
+        ));
+        assert!(!actor.view.discovering);
+        assert_eq!(actor.view.devices[0].name, "fresh synthetic");
+        Ok(())
     }
 
     #[test]

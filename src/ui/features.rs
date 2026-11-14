@@ -230,9 +230,13 @@ impl App {
         egui::Window::new("Verbindungsassistent").open(&mut open).default_width(500.0).vscroll(true).max_height((ctx.content_rect().height()-60.0).max(240.0)).show(ctx, |ui| {
             ui.heading("1 · Bluetooth auf beiden PCs vorbereiten");
             ui.label(&self.view.availability);
-            if self.view.bluetooth_checked && self.view.bluetooth_available { ui.colored_label(MINT, "Ein Bluetooth-Adapter wurde von Windows erkannt."); }
-            if ui.button("Bluetooth erneut prüfen").clicked() { self.command(Command::RefreshBluetooth); }
-            if ui.button("Windows-Bluetooth-Einstellungen öffnen").clicked() { let _ = crate::transport::open_bluetooth_settings(); }
+            if self.view.bluetooth_checked && self.view.bluetooth_available {
+                ui.colored_label(MINT, "Ein Adapter mit Classic-Unterstützung wurde von Windows erkannt.");
+                if !self.view.radio_connectable { ui.colored_label(Color32::LIGHT_YELLOW, "Windows erlaubt gerade keine eingehenden Verbindungen. Bluetooth-Einstellungen und Richtlinien prüfen."); }
+                if !self.view.radio_discoverable { ui.label("Windows meldet den PC als nicht auffindbar. Für die erste Suche gegebenenfalls die Bluetooth-Einstellungen auf diesem PC geöffnet lassen. Bereits gekoppelte Geräte können trotzdem erreichbar sein."); }
+            }
+            if ui.add_enabled(self.view.bluetooth_checked, egui::Button::new("Bluetooth erneut prüfen")).clicked() { self.command(Command::RefreshBluetooth); }
+            if ui.button("Windows-Bluetooth-Einstellungen öffnen").clicked() && crate::transport::open_bluetooth_settings().is_err() { self.error="Öffne Windows → Einstellungen → Bluetooth und Geräte.".into(); }
             ui.label("Bluetooth auf beiden PCs einschalten. Bei Bedarf die PCs in Windows koppeln. Zum ersten Finden die Windows-Bluetooth-Seite auf dem empfangenden PC geöffnet lassen. Beide Geräte brauchen Bluetooth Classic; nur BLE genügt nicht.");
             ui.separator(); ui.heading("2 · Eine Person empfängt, die andere verbindet");
             ui.horizontal_wrapped(|ui| {
