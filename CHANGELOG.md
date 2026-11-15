@@ -1,6 +1,6 @@
 # Changelog
 
-## Noch nicht veröffentlicht
+## 0.4.1 – noch nicht veröffentlicht
 
 - Geführter Erststart mit Willkommen, Profil/Speicherort und freier Passwortwahl.
 - Passwortregeln in UI, Neuerstellung, Passwortwechsel und Öffnen entfernt; kurze, leere und lange Unicode-Passwörter werden unterstützt. Verschlüsselung und Wiederholungsprüfung bleiben erhalten.
