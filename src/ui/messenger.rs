@@ -774,6 +774,7 @@ impl App {
                                             ui.add(
                                                 egui::TextEdit::multiline(&mut *self.composer)
                                                     .id_salt("composer")
+                                                    .char_limit(MAX_TEXT)
                                                     .frame(false)
                                                     .desired_width(ui.available_width())
                                                     .desired_rows(1)

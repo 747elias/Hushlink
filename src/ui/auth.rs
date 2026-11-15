@@ -189,6 +189,7 @@ fn field(
                 egui::TextEdit::singleline(value)
                     .id_salt(id)
                     .password(password)
+                    .char_limit(if password { 1024 } else { 64 })
                     .frame(false)
                     .hint_text(hint)
                     .desired_width(ui.available_width())

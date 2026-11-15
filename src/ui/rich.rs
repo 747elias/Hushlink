@@ -284,7 +284,7 @@ if ui.button("Behalten").clicked(){self.rich.delete_item=None;}}
         let mut open = true;
         egui::Window::new("Nachricht bearbeiten").open(&mut open).collapsible(false).default_width(430.0).vscroll(true).max_height((ctx.content_rect().height()-80.0).max(220.0)).show(ctx,|ui|{
             ui.label("Die Gegenstelle sieht die bearbeitete Nachricht mit Kennzeichnung. Kopien des ursprünglichen Textes können bestehen bleiben.");
-            ui.add_sized([ui.available_width(),110.0],egui::TextEdit::multiline(&mut self.rich.edit_text));
+            ui.add_sized([ui.available_width(),110.0],egui::TextEdit::multiline(&mut self.rich.edit_text).char_limit(MAX_TEXT));
             let ready=self.view.peer.as_ref().is_some_and(|p|p.ready && p.id==message.contact_id);
             if ui.add_enabled(ready && !message.action_pending && !self.rich.edit_text.trim().is_empty() && self.rich.edit_text.len()<=MAX_TEXT,egui::Button::new("Änderung senden")).clicked() && self.command(Command::Conversation(Action::Edit{target:message.id.clone(),revision:message.edit_revision+1,text:self.rich.edit_text.clone()})){self.rich.edit=None;self.rich.edit_text.zeroize();clear_ui_memory(ctx);}
         });
