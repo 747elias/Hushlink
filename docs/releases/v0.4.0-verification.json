@@ -1,0 +1,20 @@
+{
+  "repository": "747elias/Hushlink",
+  "tag": "v0.4.0",
+  "commit": "79723dcee7b5bd329e88a88e383bf4435e87e477",
+  "release_url": "https://github.com/747elias/Hushlink/releases/tag/v0.4.0",
+  "release_id": 446003377,
+  "prerelease": true,
+  "sha256": {
+    "Hushlink-v0.4.0-windows-x64.exe": "41a90f3735af17d54f8a22e76f3e4ae5fc09e6f17afe66139042948e55932cc6",
+    "Hushlink-v0.4.0-windows-x64-setup.exe": "add34ba20ae5110732dd41617d3e23d14598d61d45d31ad1015877d04ff4348b",
+    "Hushlink-v0.4.0-windows-x64.zip": "0b86a1c9457b42796dd6502822457b9c4ac2174da2c90efa63fedc6e2f9a6f50"
+  },
+  "download_urls": {
+    "Hushlink-v0.4.0-windows-x64-setup.exe": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64-setup.exe",
+    "Hushlink-v0.4.0-windows-x64.exe": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.exe",
+    "Hushlink-v0.4.0-windows-x64.zip": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.zip",
+    "SHA256SUMS.txt": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/SHA256SUMS.txt"
+  },
+  "verification": "Downloaded app, installer and ZIP; sizes, SHA-256, tag commit, GUI PE and ZIP identity of both EXEs verified; no Bluetooth hardware test."
+}

@@ -1,6 +1,6 @@
 # Vertrauenswürdige Windows-Signatur
 
-Status: **extern blockiert**. Der Maintainer hat am 14.11.2026 bestätigt,
+Status der vertrauenswürdigen Signierung: **extern blockiert**. Der Maintainer hat am 14.11.2026 bestätigt,
 dass noch kein Code-Signing-Zertifikat und kein Signierdienst vorhanden sind.
 Es wurde keine Signatur behauptet oder ein selbst ausgestelltes Zertifikat als
 vertrauenswürdig ausgegeben. Die GitHub-Integration konnte die vorhandenen
@@ -94,3 +94,12 @@ Offizielle Grundlagen (geprüft 14.11.2026):
 - https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options
 - https://learn.microsoft.com/windows/win32/api/wintrust/nf-wintrust-winverifytrust
 - https://learn.microsoft.com/windows/win32/seccrypto/using-signtool-to-verify-a-file-signature
+
+## Freigegebene Ausnahme v0.4.0
+
+Am 15.11.2026 hat der Maintainer ausdrücklich die Veröffentlichung von v0.4.0
+als **unsignierte Vorabversion** erlaubt. Der Release ist veröffentlicht und
+seine tatsächlichen Downloads sind geprüft. Diese Ausnahme gilt nur für den
+in AGENTS.md festgehaltenen Release-Commit und dessen exakte geprüfte Dateien.
+Sie beschafft kein Zertifikat, erlaubt keine Vertrauensbehauptung und lockert
+weder den Updater noch die Signierpflicht zukünftiger Releases.

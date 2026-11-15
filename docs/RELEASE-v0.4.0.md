@@ -1,4 +1,4 @@
-# Hushlink v0.4.0 – Implementierung, Veröffentlichung blockiert
+# Hushlink v0.4.0 – unsignierte Vorabversion
 
 Alle vorgesehenen Erweiterungen sind im Entwicklungsbranch implementiert:
 
@@ -31,11 +31,16 @@ Backups bei zurückgestellter Uhr und vollständiger Restore-Akteurtest geprüft
 Heruntergeladene CI-EXE/Setup/ZIP auf PE, SHA-256, Commit und Identität geprüft;
 aktuelle Nachweise: [VALIDATION.md](VALIDATION.md).
 
-**Kein veröffentlichter v0.4-Release und keine Herausgebersignatur.** Der Nutzer
-hat noch kein Code-Signing-Zertifikat oder verifizierten Signierdienst.
-[SIGNING.md](SIGNING.md) enthält den konkreten eingerichteten Ablauf und die
-noch nötige externe Konto-/Identitätsfreigabe. Unsigned CI-Artefakte werden
-nicht als signierter Release ausgegeben. Es wurde kein Tag erstellt.
+**[v0.4.0 ist öffentlich veröffentlicht](https://github.com/747elias/Hushlink/releases/tag/v0.4.0), ohne Herausgebersignatur.**
+Der Maintainer hat diese einzelne unsignierte Vorabversion am 15.11.2026
+ausdrücklich freigegeben. Die Ausnahme hebt die Signaturpflicht für zukünftige
+Releases und die Herausgeberprüfung im Updater nicht auf.
+
+Release-Commit: `79723dcee7b5bd329e88a88e383bf4435e87e477`.
+[Erfolgreiche Windows-CI](https://github.com/747elias/Hushlink/actions/runs/43707154440).
+Die öffentlichen Downloads wurden nach Veröffentlichung vollständig erneut
+heruntergeladen und auf Tag-Zielcommit, SHA-256, PE-Format und identische
+ZIP-Binärdateien geprüft. [Maschinenlesbarer Nachweis](releases/v0.4.0-verification.json).
 
 Noch nicht durchgeführt: zwei physische Bluetooth-PCs, reale Kamera, Hello-
 Biometrie/PIN samt Providerunterstützung, vollständige Windows-UI-/Skalierungs-

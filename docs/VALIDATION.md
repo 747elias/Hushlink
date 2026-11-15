@@ -1,5 +1,13 @@
-# Prüfstand v0.4.0 – noch kein veröffentlichter Release
+# Prüfstand v0.4.0 – veröffentlichte unsignierte Vorabversion
 
+
+Aktuell: [v0.4.0 veröffentlicht](https://github.com/747elias/Hushlink/releases/tag/v0.4.0),
+ausdrücklich vom Maintainer als unsignierte Vorabversion freigegeben. Exakter
+Release-Commit `79723dcee7b5bd329e88a88e383bf4435e87e477`, erfolgreiche
+[Windows-CI](https://github.com/747elias/Hushlink/actions/runs/43707154440),
+[geprüfte tatsächliche öffentliche Downloads](releases/v0.4.0-verification.json).
+Die nachfolgenden älteren Entwicklungsstände sind historische Nachweise;
+ihre damaligen Angaben zur blockierten Veröffentlichung sind überholt.
 
 Aktueller UI-Ausbau: `main`. Neue lokale Inter-/Icon-
 Oberfläche, responsive Navigation/Chats/Formulare/Einstellungen und kompakte

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 – in Entwicklung, Veröffentlichung durch Signierkonfiguration blockiert
+## 0.4.0 – veröffentlichte unsignierte Vorabversion
 
 - Vollständig überarbeitete Messenger-Oberfläche: Navigation, durchsuchbare Chatliste mit Vorschauen/Filtern, Initialen, kompakte Nachrichtenblasen, Emoji-Eingabe und Aktions-/Anhangmenüs. Neuer Erststart/Entsperren und gegliederte Einstellungen; responsive Spalte und Scrollbereiche für kleine Fenster. Lokale Windows-Uhrzeiten, lokal eingebettete Inter-Schrift und eigene Vektoricons.
 

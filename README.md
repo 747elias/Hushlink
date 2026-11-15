@@ -1,5 +1,11 @@
 # Hushlink
 
+**Aktuelle Vorabversion: [Hushlink v0.4.0](https://github.com/747elias/Hushlink/releases/tag/v0.4.0)**
+
+[Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v0.4.0/SHA256SUMS.txt)
+
+**Nicht signiert.** Windows SmartScreen kann warnen. Diese Vorabversion wurde ausdrücklich als unsigniert zur Veröffentlichung freigegeben.
+
 Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversand für zwei Windows-11-PCs in Bluetooth-Reichweite. Nachrichten und Dateien benötigen weder Internet noch Konto oder zentralen Server. Nur die abschaltbare Update-Funktion nutzt Internet. Keine Telemetrie. Die deutsche Oberfläche und die App-Logik sind in Rust geschrieben.
 
 **Vorabversion:** Die automatischen Prüfungen und Windows-Builds stehen im jeweiligen [Actions-Lauf](https://github.com/747elias/Hushlink/actions). Ein erfolgreicher Build ist kein Bluetooth-Hardwaretest. Der konkrete Zwei-PC-Testplan ist [hier](docs/MANUAL-TEST.md) beschrieben. Es besteht keine externe Sicherheitsprüfung.
@@ -14,19 +20,18 @@ Bildversand aus der Zwischenablage, QR-/Kameravergleich, optionaler kryptografis
 gebundener Windows-Hello-Zugang sowie verschlüsselte automatische Sicherungen
 mit Wiederherstellung und Speicherverwaltung.
 
-**Noch kein v0.4-Release:** Der Nutzer besitzt noch kein Code-Signing-Zertifikat
-oder verifizierten Dienst. Die Signierpipeline ist vorbereitet und blockiert
-unsignierte Veröffentlichungen. [Einrichtung und externer Schritt](docs/SIGNING.md).
-Die zuletzt veröffentlichten v0.3-Downloads unten enthalten diese Erweiterungen
-noch nicht. Konkrete Nachweise und verbleibende Hardwaretests stehen im
-[Prüfstand](docs/VALIDATION.md), [v0.4-Arbeitsstand](docs/RELEASE-v0.4.0.md) und
-[manuellen Testablauf](docs/MANUAL-TEST.md).
+**v0.4.0 ist als unsignierte Vorabversion veröffentlicht.** Die ausdrückliche
+Maintainer-Ausnahme gilt nur für diese Version. Für zukünftige signierte
+Veröffentlichungen fehlt weiterhin ein Zertifikat/verifizierter Dienst; die
+Signaturprüfung im Updater bleibt aktiv. [Signierstatus](docs/SIGNING.md).
+Die tatsächlichen öffentlichen Downloads wurden auf Tag-Commit, SHA-256,
+PE-Format und ZIP-Identität geprüft: [Verifikationsnachweis](docs/releases/v0.4.0-verification.json).
 
 ## Neue Messenger-Oberfläche im Entwicklungsbuild
 
 Das Design orientiert sich an vertrauten Desktop-Messengern: dunkles Petrol,
 Mint-Akzente, eingebettete Inter-Schrift, eigene Icons und kompakte Chatblasen.
-Die bisher veröffentlichten v0.3-Downloads enthalten dieses Design noch nicht.
+Das neue Design ist im veröffentlichten v0.4.0-Download enthalten.
 
 ![Echte Hushlink-Oberfläche mit ausdrücklich künstlichem, getrenntem Testprofil; keine Bluetooth-Verbindung](docs/images/messenger-test.png)
 
@@ -52,22 +57,22 @@ keinen Hardwaretest. Windows verwendet den nativen MSVC-/Direct3D-Build.
   Tresorpfad, Autostart und Updates stehen unter Allgemein, Passwort/Hello und
   Inaktivität unter Sicherheit, verschlüsselte Sicherungen unter Speicher.
 
-[Designplan und Prüfstand](docs/PLAN-DESIGN.md). Für die folgenden allgemeinen
-Einrichtungsschritte gelten bei v0.3 noch dessen ursprüngliche Bedienelemente.
+[Designplan und Prüfstand](docs/PLAN-DESIGN.md). GitHub vergibt das Badge
+„Latest“ nur an reguläre Releases; v0.4.0 bleibt bewusst als Vorabversion markiert.
 
 ## Starten und benutzen
 
-1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v0.3.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
+1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v0.4.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
 2. EXE als normaler Benutzer starten. Windows 11 x64, eine funktionierende Direct3D-12-Grafikumgebung (gegebenenfalls Windows-Softwareadapter) und ein Bluetooth-Classic-Adapter mit Microsoft-RFCOMM-Unterstützung werden benötigt. Reine BLE-Adapter reichen nicht. Die EXE verwendet die statische MSVC-Laufzeit; weder Rust noch eine zusätzliche App-Registrierung oder ein MSIX-Paket sind erforderlich. Es gibt keinen TCP- oder WLAN-Ersatztransport.
 3. Einen Anzeigenamen und ein langes, einzigartiges Passwort (mindestens 12 Zeichen) festlegen. Das Passwort verschlüsselt tatsächlich den lokalen Tresor. **Es gibt keine Passwortwiederherstellung. Ein vergessenes Passwort bedeutet Datenverlust.**
 4. Bluetooth auf beiden PCs in den Windows-Einstellungen einschalten. Bei Bedarf beide PCs dort koppeln. Zum erstmaligen Finden Windows-Bluetooth-Einstellungen geöffnet halten; Windows steuert die Sichtbarkeit. Hushlink aktiviert selbst keine dauerhafte Auffindbarkeit.
-5. Auf einem PC **Verbindung empfangen** wählen. Auf dem anderen **Geräte suchen**, den richtigen PC und **Verbinden** wählen. Die Suche zeigt Geräte-Kandidaten; erst der Verbindungsaufbau prüft den Hushlink-Dienst. Eingehende Anfragen bewusst annehmen oder ablehnen. Nur eine Verbindung gleichzeitig.
+5. Über das Plus neben **Chats** auf einem PC **Verbindung empfangen** wählen. Auf dem anderen **Geräte in der Nähe suchen**, den richtigen PC und **Verbinden** wählen. Die Suche zeigt Geräte-Kandidaten; erst der Verbindungsaufbau prüft den Hushlink-Dienst. Eingehende Anfragen bewusst annehmen oder ablehnen. Nur eine Verbindung gleichzeitig.
 6. Auf beiden PCs den vollständigen Sicherheitscode über einen unabhängigen Weg vergleichen, zum Beispiel persönlich. Ein Gerätename genügt nicht. Auf beiden Seiten bestätigen. Erst dann wird das Schreiben freigegeben. Eine geänderte bekannte Identität blockiert die Verbindung; eine neue Prüfung verlangt eine bewusste Entscheidung.
 7. Text schreiben: **Enter** sendet, **Shift+Enter** fügt eine neue Zeile ein. Unicode, Umlaute, Emojis und Zeilenumbrüche werden als UTF-8 übertragen. Ausstehend bedeutet lokal vorgemerkt, gesendet bedeutet in die Verbindung geschrieben und **empfangen** bedeutet durch die andere App nach verschlüsselter Speicherung bestätigt. Das ist keine Lesebestätigung.
 8. Kontakte und Verlauf bleiben im verschlüsselten lokalen Tresor erhalten. Kontakt auswählen und **Erneut verbinden** nutzen. Jeder Verbindungsaufbau verwendet eine neue Sitzung. Bei bereits bestätigten Kontakten prüft jede App den gespeicherten Schlüssel und bestätigt die neue Sitzung automatisch. Neue oder geänderte Identitäten benötigen wieder eine bewusste Prüfung.
 9. **Sperren** oder **Strg+L** beendet Sitzungen und leert die Anzeige. Die automatische Sperre nach 1–120 Minuten ist in den Einstellungen konfigurierbar (Standard 5 Minuten); das Sperren der Windows-Sitzung sperrt Hushlink ebenfalls. In den Einstellungen lässt sich das Passwort ändern, der Verlauf bleibt dabei erhalten.
-10. **Verlauf löschen** entfernt den ausgewählten Verlauf aus dem lokalen Tresor. Kopien auf dem anderen PC bleiben bestehen. Sichere physische Löschung auf SSDs wird nicht versprochen.
-11. **Datei senden** wählt eine Datei bis 20 MiB. Die andere Person muss das Angebot ausdrücklich annehmen. Fortschritt und Abbruch stehen unter **Dateiübertragungen**. Erst nach bestätigter Speicherung erscheint die Datei als empfangen. Anhänge bleiben verschlüsselt im Tresor; **Speichern unter** erzeugt bewusst eine entschlüsselte Kopie. Dateien werden nie automatisch geöffnet. Vorsicht bei unbekannten Dateien.
+10. Im Chat-Menü **Verlauf lokal löschen …** entfernt den ausgewählten Verlauf aus dem lokalen Tresor. Kopien auf dem anderen PC bleiben bestehen. Sichere physische Löschung auf SSDs wird nicht versprochen.
+11. Im Büroklammermenü **Datei vom PC …** wählt eine Datei bis 20 MiB. Die andere Person muss das Angebot ausdrücklich annehmen. Fortschritt und Abbruch stehen unter **Dateiübertragungen**. Erst nach bestätigter Speicherung erscheint die Datei als empfangen. Anhänge bleiben verschlüsselt im Tresor; **Speichern unter** erzeugt bewusst eine entschlüsselte Kopie. Dateien werden nie automatisch geöffnet. Vorsicht bei unbekannten Dateien.
 12. In **Einstellungen** den Tresorpfad wählen: gesperrt einen vorhandenen Tresor oder einen Speicherort für ein neues Profil auswählen, entsperrt den Tresor nach dem Trennen sicher verschieben. Alle privaten Daten bleiben zusammen in einer Datei. Bestehende Zieldateien werden nicht überschrieben.
 13. Dort auch Windows-Autostart, Schliessen ins Tray und automatische Updates einstellen. Autostart öffnet einen gesperrten Tresor. Schliessen ins Tray sperrt zuerst und beendet Verbindungen; über das Tray-Menü **Beenden** vollständig schliessen. Updates werden beim Start und alle sechs Stunden geprüft/heruntergeladen, installiert erst nach **Update installieren und neu starten**. Dies benötigt Internet; ausgeschaltet bleibt der Chat vollständig offline nutzbar.
 
