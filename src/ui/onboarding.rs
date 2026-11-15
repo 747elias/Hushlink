@@ -80,7 +80,7 @@ impl App {
                 self.password.zeroize();self.confirmation.zeroize();
                 self.design.onboarding_show_password = false;
                 self.error.zeroize();self.focus_auth = true;clear_ui_memory(ui.ctx());
-            } else if next {
+            } else if next && !self.busy {
                 if step == 1 && (self.name.trim().is_empty() || self.name.trim().len() > crate::protocol::MAX_NAME || self.name.chars().any(char::is_control)) {
                     self.error = "Bitte wähle einen gültigen Anzeigenamen.".into();
                 } else if step == 2 {

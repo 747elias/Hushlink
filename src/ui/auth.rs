@@ -138,6 +138,7 @@ impl App {
                         && !self.settings_open
                         && ui.input_mut(take_plain_enter);
                     if (theme::primary(ui, "Tresor entsperren").clicked() || enter)
+                        && !self.busy
                         && self.command(Command::Unlock {
                             password: self.password.clone(),
                         })
