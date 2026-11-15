@@ -16,6 +16,7 @@ pub(super) const SOFT_GREEN: Color32 = Color32::from_rgb(24, 59, 50);
 
 pub(super) fn configure(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BACKGROUND;
     visuals.window_fill = PANEL;
