@@ -4,6 +4,12 @@ use theme::{INPUT, Icon, LINE, SURFACE, TEXT};
 
 impl App {
     pub(super) fn auth_screen(&mut self, ui: &mut egui::Ui) {
+        if self.runtime.is_some() && self.view.vault_path.is_empty() {
+            ui.spinner();
+            ui.label("Dein Profil wird gesucht …");
+            self.show_error(ui);
+            return;
+        }
         let wide = ui.available_width() > 860.0;
         let width = ui.available_width();
         ui.add_space(if wide {
@@ -96,43 +102,68 @@ impl App {
         );
     }
     fn auth_card(&mut self, ui: &mut egui::Ui, width: f32) {
-        let existing = self.view.profile_exists;
-        egui::Frame::new().fill(PANEL).stroke(Stroke::new(1.0,LINE)).corner_radius(22).inner_margin(28).show(ui,|ui|{
-            ui.set_width((width-56.0).max(230.0));
-            let(r,_)=ui.allocate_exact_size(vec2(46.0,46.0),Sense::hover());ui.painter().circle_filled(r.center(),23.0,theme::SOFT_GREEN);theme::icon(ui.painter(),r.shrink(12.0),Icon::Lock,MINT);
-            ui.add_space(20.0);ui.label(RichText::new(if existing{"Schön, dass du da bist."}else{"Mach es dir privat."}).size(25.0).color(TEXT));
-            ui.add_space(8.0);ui.label(RichText::new(if existing{"Entsperre deinen Tresor, um deine Gespräche zu öffnen."}else{"Ein Name, ein Passwort. Dein Profil bleibt auf diesem PC."}).size(13.0).color(MUTED));
-            ui.add_space(22.0);
-            ui.add_enabled_ui(!self.busy && self.runtime.is_some(),|ui|{
-                if !existing{
-                    ui.label(RichText::new("Dein Anzeigename").size(12.0).color(MUTED));
-                    let response=field(ui,&mut self.name,"profile_name","Wie möchtest du heissen?",false);
-                    if self.focus_auth{response.request_focus();self.focus_auth=false;}
-                    ui.add_space(8.0);
-                }
-                ui.label(RichText::new("Dein Passwort").size(12.0).color(MUTED));
-                let response=field(ui,&mut self.password,"unlock_password","Passwort eingeben",true);
-                if self.focus_auth{response.request_focus();self.focus_auth=false;}
-                if !existing{
-                    ui.add_space(8.0);ui.label(RichText::new("Passwort wiederholen").size(12.0).color(MUTED));field(ui,&mut self.confirmation,"confirm_password","Noch einmal eingeben",true);
-                    ui.add_space(8.0);ui.label(RichText::new("Mindestens 12 Zeichen. Eine lange, einzigartige Passphrase schützt deinen Tresor.").size(11.0).color(MUTED));
-                    ui.add_space(6.0);ui.label(RichText::new("Bewahre dein Passwort gut auf. Ohne Wiederherstellung bedeutet ein vergessenes Passwort Datenverlust.").size(11.0).color(Color32::from_rgb(225,180,127)));
-                }
-                ui.add_space(16.0);
-                let enter=!self.rich.restore_open && !self.settings_open && ui.input_mut(take_plain_enter);
-                let response=ui.add_sized([ui.available_width(),44.0],egui::Button::new(RichText::new(if existing{"Tresor entsperren"}else{"Profil erstellen"}).size(14.0).color(Color32::from_rgb(7,36,28))).fill(MINT).corner_radius(11));
-                if response.clicked() || enter{
-                    if !existing && (self.name.trim().is_empty() || self.name.trim().len()>crate::protocol::MAX_NAME || self.name.chars().any(char::is_control) || self.password.chars().count()<12 || *self.password!=*self.confirmation){self.error="Bitte gib einen Namen und zweimal dasselbe Passwort mit mindestens 12 Zeichen ein.".into();}
-                    else{let command=if existing{Command::Unlock{password:self.password.clone()}}else{Command::Create{name:self.name.trim().into(),password:self.password.clone()}};
-                        if self.command(command){self.busy=true;self.password.zeroize();self.confirmation.zeroize();clear_ui_memory(ui.ctx());}
+        if !self.view.profile_exists {
+            self.onboarding(ui, width);
+            self.auth_links(ui);
+            return;
+        }
+        egui::Frame::new()
+            .fill(PANEL)
+            .stroke(Stroke::new(1.0, LINE))
+            .corner_radius(22)
+            .inner_margin(28)
+            .show(ui, |ui| {
+                ui.set_width((width - 56.0).max(230.0));
+                ui.heading("Schön, dass du da bist.");
+                ui.label(
+                    RichText::new("Entsperre deinen Tresor, um deine Gespräche zu öffnen.")
+                        .color(MUTED),
+                );
+                ui.add_space(18.0);
+                ui.add_enabled_ui(!self.busy && self.runtime.is_some(), |ui| {
+                    ui.label("Dein Passwort");
+                    let response = field(
+                        ui,
+                        &mut self.password,
+                        "unlock_password",
+                        "Passwort eingeben",
+                        true,
+                    );
+                    if self.focus_auth {
+                        response.request_focus();
+                        self.focus_auth = false;
                     }
+                    ui.add_space(12.0);
+                    let enter = !self.rich.restore_open
+                        && !self.settings_open
+                        && ui.input_mut(take_plain_enter);
+                    if (theme::primary(ui, "Tresor entsperren").clicked() || enter)
+                        && self.command(Command::Unlock {
+                            password: self.password.clone(),
+                        })
+                    {
+                        self.busy = true;
+                        self.password.zeroize();
+                        clear_ui_memory(ui.ctx());
+                    }
+                    if cfg!(windows)
+                        && ui.button("Mit Windows Hello öffnen").clicked()
+                        && self.command(Command::UnlockHello)
+                    {
+                        self.password.zeroize();
+                        self.busy = true;
+                        clear_ui_memory(ui.ctx());
+                    }
+                });
+                if self.busy {
+                    ui.spinner();
+                    ui.label("Dein Tresor wird geöffnet …");
                 }
+                self.show_error(ui);
             });
-            if existing && cfg!(windows){ui.add_space(8.0);if ui.add_enabled(!self.busy,egui::Button::new("Mit Windows Hello öffnen").min_size(vec2(ui.available_width(),40.0))).clicked() && self.command(Command::UnlockHello){self.password.zeroize();self.busy=true;clear_ui_memory(ui.ctx());}}
-            if self.busy{ui.add_space(12.0);ui.horizontal(|ui|{ui.spinner();ui.label(RichText::new("Dein Tresor wird geöffnet …").size(12.0).color(MUTED));});}
-            self.show_error(ui);ui.add_space(18.0);
-            ui.horizontal(|ui|{let(r,_)=ui.allocate_exact_size(vec2(13.0,13.0),Sense::hover());theme::icon(ui.painter(),r,Icon::Shield,MUTED);ui.label(RichText::new("Verschlüsselt auf diesem PC gespeichert").size(10.0).color(MUTED));});
-        });
+        self.auth_links(ui);
+    }
+    fn auth_links(&mut self, ui: &mut egui::Ui) {
         ui.add_space(12.0);
         ui.vertical_centered(|ui| {
             if ui
@@ -173,7 +204,7 @@ impl App {
         });
     }
 }
-fn field(
+pub(super) fn field(
     ui: &mut egui::Ui,
     value: &mut String,
     id: &str,
@@ -189,7 +220,7 @@ fn field(
                 egui::TextEdit::singleline(value)
                     .id_salt(id)
                     .password(password)
-                    .char_limit(if password { 1024 } else { 64 })
+                    .char_limit(if id == "profile_name" { 64 } else { usize::MAX })
                     .frame(false)
                     .hint_text(hint)
                     .desired_width(ui.available_width())

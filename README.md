@@ -64,7 +64,7 @@ keinen Hardwaretest. Windows verwendet den nativen MSVC-/Direct3D-Build.
 
 1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v0.4.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
 2. EXE als normaler Benutzer starten. Windows 11 x64, eine funktionierende Direct3D-12-Grafikumgebung (gegebenenfalls Windows-Softwareadapter) und ein Bluetooth-Classic-Adapter mit Microsoft-RFCOMM-Unterstützung werden benötigt. Reine BLE-Adapter reichen nicht. Die EXE verwendet die statische MSVC-Laufzeit; weder Rust noch eine zusätzliche App-Registrierung oder ein MSIX-Paket sind erforderlich. Es gibt keinen TCP- oder WLAN-Ersatztransport.
-3. Einen Anzeigenamen und ein langes, einzigartiges Passwort (mindestens 12 Zeichen) festlegen. Das Passwort verschlüsselt tatsächlich den lokalen Tresor. **Es gibt keine Passwortwiederherstellung. Ein vergessenes Passwort bedeutet Datenverlust.**
+3. Einen Anzeigenamen und ein frei gewähltes Passwort (ohne Mindestlänge oder Zeichenvorgaben) festlegen. Das Passwort verschlüsselt tatsächlich den lokalen Tresor. **Es gibt keine Passwortwiederherstellung. Ein vergessenes Passwort bedeutet Datenverlust.**
 4. Bluetooth auf beiden PCs in den Windows-Einstellungen einschalten. Bei Bedarf beide PCs dort koppeln. Zum erstmaligen Finden Windows-Bluetooth-Einstellungen geöffnet halten; Windows steuert die Sichtbarkeit. Hushlink aktiviert selbst keine dauerhafte Auffindbarkeit.
 5. Über das Plus neben **Chats** auf einem PC **Verbindung empfangen** wählen. Auf dem anderen **Geräte in der Nähe suchen**, den richtigen PC und **Verbinden** wählen. Die Suche zeigt Geräte-Kandidaten; erst der Verbindungsaufbau prüft den Hushlink-Dienst. Eingehende Anfragen bewusst annehmen oder ablehnen. Nur eine Verbindung gleichzeitig.
 6. Auf beiden PCs den vollständigen Sicherheitscode über einen unabhängigen Weg vergleichen, zum Beispiel persönlich. Ein Gerätename genügt nicht. Auf beiden Seiten bestätigen. Erst dann wird das Schreiben freigegeben. Eine geänderte bekannte Identität blockiert die Verbindung; eine neue Prüfung verlangt eine bewusste Entscheidung.
@@ -177,3 +177,14 @@ Unter Linux lassen sich die plattformunabhängigen Protokoll-, Tresor- und Akteu
 [Prüfstand](docs/VALIDATION.md) · [Interne Prüfung](docs/SECURITY-REVIEW.md) · [Protokoll](docs/PROTOCOL.md) · [Tresorformat](docs/VAULT.md) · [Zwei-PC-Test](docs/MANUAL-TEST.md) · [Änderungen](CHANGELOG.md) · [Projektregeln](AGENTS.md).
 
 Versionstags führen vor der Veröffentlichung dieselben Prüfungen und einen neuen Windows-Release-Build samt Installer-Abnahme für genau den Tag-Commit aus. Erst erfolgreiche Checks erlauben Veröffentlichung der exakt geprüften Dateien. Release-Artefakte enthalten Setup-EXE, direkt startbare EXE, ZIP und geprüfte SHA-256-Werte. [Installation](installer/README.md) · [Update-Vertrauen und Grenzen](docs/UPDATES.md).
+
+## Neuer Erststart (Entwicklungsstand nach v0.4.0)
+
+Drei Schritte führen durch Willkommen, Anzeigename/Speicherort und Passwort.
+Ein Profil wird erst mit **Hushlink starten** angelegt. Bestehende Tresore
+zeigen weiterhin direkt das Entsperren. Suche/Empfang starten erst bewusst.
+Passwörter haben keine Längen- oder Zeichenvorgaben, auch leer ist erlaubt.
+Die Wiederholung verhindert Tippfehler, sie ist keine Stärkeregel. Kurze oder
+leere Passwörter schützen entsprechend schwach; ohne Passwort kann jeder mit
+der Datei den Tresor öffnen. Verschlüsselung, Passwortwechsel und Sperren
+bleiben aktiv. Diese Änderungen sind noch nicht im v0.4.0-Download enthalten.

@@ -13,6 +13,8 @@ pub(super) struct Presentation {
     pub focus_chat_search: bool,
     pub emoji_open: bool,
     pub settings_section: usize,
+    pub onboarding_step: usize,
+    pub onboarding_show_password: bool,
 }
 
 impl App {

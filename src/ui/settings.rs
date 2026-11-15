@@ -135,11 +135,7 @@ impl App {
         ui.add_space(8.0);
         for (label, id, value) in [
             ("Bisheriges Passwort", "old_password", &mut *self.password),
-            (
-                "Neues Passwort · mindestens 12 Zeichen",
-                "new_password",
-                &mut *self.new_password,
-            ),
+            ("Neues Passwort", "new_password", &mut *self.new_password),
             (
                 "Neues Passwort wiederholen",
                 "new_confirmation",
@@ -162,10 +158,8 @@ impl App {
             )
             .clicked()
         {
-            if self.new_password.chars().count() < 12
-                || *self.new_password != *self.new_confirmation
-            {
-                self.error="Das neue Passwort muss mindestens 12 Zeichen haben und mit der Bestätigung übereinstimmen.".into();
+            if *self.new_password != *self.new_confirmation {
+                self.error = "Das neue Passwort und die Bestätigung stimmen nicht überein.".into();
             } else if self.command(Command::ChangePassword {
                 old: self.password.clone(),
                 new: self.new_password.clone(),

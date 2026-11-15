@@ -269,10 +269,6 @@ pub enum VaultError {
         "Der neue Speicherort ist aktiv; die alte verschlüsselte Datei konnte nicht entfernt werden. Bitte die alte Datei nach eigener Prüfung löschen."
     )]
     RelocationCleanup,
-    #[error("Bitte mindestens 12 Zeichen als Passwort verwenden.")]
-    PasswordTooShort,
-    #[error("Das Passwort darf höchstens 1’024 UTF-8-Byte lang sein.")]
-    PasswordTooLong,
     #[error(
         "Profil enthält ungültige oder zu viele Daten. Bitte Namen, Kontakte und Nachrichten prüfen."
     )]
@@ -461,7 +457,6 @@ pub struct Vault {
 impl Vault {
     pub fn create(path: impl AsRef<Path>, password: &str, mut profile: Profile) -> Result<Self> {
         profile.schema_version = PROFILE_SCHEMA_VERSION;
-        validate_new_password(password)?;
         validate_profile(&profile)?;
         let path = path.as_ref().to_path_buf();
         let parent = path.parent().ok_or(VaultError::Format("ungültiger Pfad"))?;
@@ -582,7 +577,6 @@ impl Vault {
     /// Verify the existing password and rewrap the unchanged random data key.
     /// A fresh salt, wrapping nonce and body nonce are generated for every change.
     pub fn change_password(&mut self, old_password: &str, new_password: &str) -> Result<()> {
-        validate_new_password(new_password)?;
         // Authentication of the old key wrap is necessary even while unlocked.
         let _verified_key = self.envelope.unwrap_key(old_password)?;
         self.profile.schema_version = PROFILE_SCHEMA_VERSION;
@@ -676,16 +670,6 @@ impl Vault {
         self.envelope = envelope;
         Ok(())
     }
-}
-
-fn validate_new_password(password: &str) -> Result<()> {
-    if password.len() > 1024 {
-        return Err(VaultError::PasswordTooLong);
-    }
-    if password.chars().count() < 12 {
-        return Err(VaultError::PasswordTooShort);
-    }
-    Ok(())
 }
 
 fn validate_profile(profile: &Profile) -> Result<()> {
@@ -876,9 +860,6 @@ fn derive_key(
     salt: &[u8],
     parameters: KdfParameters,
 ) -> Result<Zeroizing<[u8; 32]>> {
-    if password.len() > 1024 {
-        return Err(VaultError::Authentication);
-    }
     let params = parameters.params()?;
     let mut memory = Zeroizing::new(vec![argon2::Block::default(); params.block_count()]);
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -1801,13 +1782,30 @@ mod tests {
     }
 
     #[test]
-    fn profile_bounds_and_password_policy_are_enforced() -> TestResult {
+    fn unrestricted_passwords_roundtrip_rewrap_and_keep_encryption() -> TestResult {
+        let directory = tempfile::tempdir()?;
+        for (index, password) in ["", "x", "  ", "🔑", &"ü".repeat(1500)].iter().enumerate() {
+            let path = directory.path().join(format!("choice-{index}.vault"));
+            drop(Vault::create(&path, password, profile())?);
+            let bytes = std::fs::read(&path)?;
+            assert!(!bytes.windows(MARKER.len()).any(|b| b == MARKER.as_bytes()));
+            assert!(matches!(
+                Vault::open(&path, "different synthetic password"),
+                Err(VaultError::Authentication)
+            ));
+            let mut vault = Vault::open(&path, password)?;
+            let before = vault.profile().messages[0].text.clone();
+            vault.change_password(password, "")?;
+            drop(vault);
+            assert_eq!(Vault::open(&path, "")?.profile().messages[0].text, before);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn profile_bounds_are_enforced() -> TestResult {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("profile.vault");
-        assert!(matches!(
-            Vault::create(&path, "short", profile()),
-            Err(VaultError::PasswordTooShort)
-        ));
         let mut invalid = profile();
         invalid.contacts[0].id = "unbound-key".to_owned();
         assert!(matches!(

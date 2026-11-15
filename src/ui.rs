@@ -9,6 +9,7 @@ mod features;
 mod integration;
 mod media;
 mod messenger;
+mod onboarding;
 mod rich;
 mod settings;
 mod theme;
