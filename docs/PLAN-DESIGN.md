@@ -52,10 +52,6 @@ API-Ergebnisse und überlaufsichere FILETIME-Umrechnung. Linux zeigt bewusst UTC
 
 Branch-Konsolidierung: `main` enthält den neuesten App-Stand und die gesamte
 bisherige Branch-Historie, einschliesslich des separat begonnenen lokalen
-Gerüsts. Die früheren Feature-Branches wurden auf Wunsch entfernt, bis auf den auf
-GitHub noch als Standard gesetzten `feature/first-release`. Das Umstellen des
-Standardbranches auf `main` wird der Integration mit HTTP 403 verweigert und
-muss durch den Repository-Inhaber in Settings → General → Default branch
-erfolgen. Danach kann auch dieser letzte alte Remote-Branch gelöscht werden.
-Lokal bleibt ausschliesslich `main`. Der aktuelle CI-Lauf gehört zu `main`.
+Gerüsts. Die früheren Feature-Branches sind jetzt auch auf GitHub entfernt. Der Inhaber
+hat `main` als Standardbranch eingerichtet; lokal und remote bleibt nur `main`.
 Die App-Dateien wurden dabei nicht verändert.

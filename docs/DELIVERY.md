@@ -33,3 +33,13 @@ After publication, the separate read-only verification job independently downloa
 ## Windows session guard
 
 The dedicated message-only HWND registers WTS notifications for this session and handles LOCK events independently of the UI. A timer supplements state checks and releases the worker after owner drop. Registration failures keep the vault locked and are retried. Inactivity is enforced in the background actor as well. API reference: [WTSRegisterSessionNotification](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsregistersessionnotification).
+
+## Private release draft preparation
+
+The manual `Prepare release draft` workflow attaches exact verified assets from
+a successful trusted main CI run to an existing unpublished prerelease draft.
+It checks commit, tag, artifact, SHA-256 and PE format, refuses asset overwrites,
+then downloads and verifies the uploaded files. It never publishes or creates a
+tag. This supports review when the local GitHub integration cannot upload files.
+The signed publication gate in `release.yml` remains unchanged. Unsigned public
+publication requires an explicit maintainer decision overriding the signing rule.

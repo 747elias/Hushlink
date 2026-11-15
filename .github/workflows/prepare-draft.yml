@@ -1,0 +1,46 @@
+name: Prepare release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      checked_run_id:
+        description: Successful main CI run containing the exact Windows assets
+        required: true
+        type: string
+      tag:
+        description: Existing unpublished prerelease draft (no publication)
+        required: true
+        default: v0.4.0
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release-draft
+  cancel-in-progress: false
+
+jobs:
+  release-draft:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify trusted CI and attach only to an unpublished draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECKED_RUN_ID: ${{ inputs.checked_run_id }}
+          DRAFT_TAG: ${{ inputs.tag }}
+        run: python3 scripts/prepare-release-draft.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: draft-verification-${{ github.run_id }}
+          path: draft-verification.json
+          if-no-files-found: error
+          retention-days: 30
