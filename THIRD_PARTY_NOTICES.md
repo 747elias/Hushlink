@@ -1,5 +1,7 @@
 # Third-party notices
 
+Hushlink also embeds the Inter font by The Inter Project Authors under SIL Open Font License 1.1. The complete license and pinned source/hash are included in licenses/assets/Inter-OFL.txt and licenses/assets/Inter-SOURCE.md.
+
 This file preserves license/copyright texts for the locked Windows normal/build dependency graph, including build-only crates. Test-only dependencies are excluded. For a crate offered under MIT OR Apache-2.0, the MIT option is used where available; additional shipped notices are retained for completeness. Font licenses apply to the embedded font software. Hushlink's own license is in LICENSE.
 
 Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `51fa21d86de09954e8c8d984b09b8a739eb6ebf85cc3f45ae3e512560b255c31`.

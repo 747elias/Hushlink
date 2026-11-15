@@ -37,68 +37,82 @@ impl Rich {
         ready: bool,
     ) -> Option<Command> {
         let mut command = None;
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .small_button(if m.pinned { "★ Lösen" } else { "☆ Merken" })
-                .clicked()
-            {
-                command = Some(Command::Pin {
-                    id: m.id.clone(),
-                    pinned: !m.pinned,
-                });
-            }
-            if ready && !m.action_pending && m.status == MessageStatus::Received {
-                if ui.small_button("Antworten").clicked() {
-                    self.reply = Some(m.id.clone());
+        ui.horizontal(|ui| {
+            if !m.reaction_local.is_empty() || !m.reaction_remote.is_empty() {
+                for (reaction, label) in [
+                    (&m.reaction_local, "Deine Reaktion"),
+                    (&m.reaction_remote, "Reaktion der Gegenstelle"),
+                ] {
+                    if !reaction.is_empty() {
+                        egui::Frame::new()
+                            .fill(Color32::from_black_alpha(22))
+                            .corner_radius(12)
+                            .inner_margin(egui::Margin::symmetric(7, 2))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(reaction).size(13.0))
+                                    .on_hover_text(label);
+                            });
+                    }
                 }
-                ui.menu_button("Reaktion", |ui| {
-                    for emoji in crate::conversation::REACTIONS {
-                        if ui
-                            .button(if emoji.is_empty() { "Entfernen" } else { emoji })
-                            .clicked()
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                theme::icon_menu(ui, theme::Icon::More, "Nachrichtenaktionen", |ui| {
+                    if ui
+                        .button(if m.pinned {
+                            "Nicht mehr merken"
+                        } else {
+                            "Nachricht merken"
+                        })
+                        .clicked()
+                    {
+                        command = Some(Command::Pin {
+                            id: m.id.clone(),
+                            pinned: !m.pinned,
+                        });
+                        ui.close();
+                    }
+                    if ready && !m.action_pending && m.status == MessageStatus::Received {
+                        if ui.button("Antworten").clicked() {
+                            self.reply = Some(m.id.clone());
+                            ui.close();
+                        }
+                        ui.menu_button("Reagieren", |ui| {
+                            for emoji in crate::conversation::REACTIONS {
+                                if ui
+                                    .button(if emoji.is_empty() {
+                                        "Reaktion entfernen"
+                                    } else {
+                                        emoji
+                                    })
+                                    .clicked()
+                                {
+                                    command = Some(Command::Conversation(Action::React {
+                                        target: m.id.clone(),
+                                        revision: m.reaction_revision + 1,
+                                        reaction: (*emoji).into(),
+                                    }));
+                                    ui.close();
+                                }
+                            }
+                        });
+                        if m.outgoing
+                            && m.attachment_id.is_none()
+                            && ui.button("Nachricht bearbeiten").clicked()
                         {
-                            command = Some(Command::Conversation(Action::React {
-                                target: m.id.clone(),
-                                revision: m.reaction_revision + 1,
-                                reaction: (*emoji).into(),
-                            }));
+                            self.edit = Some(m.id.clone());
+                            self.edit_text.zeroize();
+                            self.edit_text.clone_from(&m.text);
                             ui.close();
                         }
                     }
                 });
-                if m.outgoing
-                    && m.attachment_id.is_none()
-                    && ui.small_button("Bearbeiten").clicked()
-                {
-                    self.edit = Some(m.id.clone());
-                    self.edit_text.zeroize();
-                    self.edit_text.clone_from(&m.text);
-                }
-            }
+            });
         });
-        if !m.reaction_local.is_empty() || !m.reaction_remote.is_empty() {
-            ui.label(format!(
-                "Du: {}   Gegenstelle: {}",
-                if m.reaction_local.is_empty() {
-                    "–"
-                } else {
-                    &m.reaction_local
-                },
-                if m.reaction_remote.is_empty() {
-                    "–"
-                } else {
-                    &m.reaction_remote
-                }
-            ));
-        }
-        if m.edited {
-            ui.label(RichText::new("Bearbeitet").small().color(MUTED));
-        }
         if m.action_pending {
             ui.label(
                 RichText::new("Änderung noch unbestätigt")
-                    .small()
-                    .color(Color32::YELLOW),
+                    .size(10.0)
+                    .color(Color32::from_rgb(239, 191, 118)),
             );
         }
         command
