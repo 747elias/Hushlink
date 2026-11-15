@@ -310,7 +310,11 @@ impl eframe::App for App {
                 )
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical()
-                        .id_salt("auth_scroll")
+                        .id_salt((
+                            "auth_scroll",
+                            self.view.profile_exists,
+                            self.design.onboarding_step,
+                        ))
                         .auto_shrink([false, false])
                         .show(ui, |ui| self.auth_screen(ui));
                 });
