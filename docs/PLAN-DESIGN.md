@@ -17,3 +17,5 @@
 Stand: Konzept auf vorhandene egui-Architektur abgebildet, Designsystem in Umsetzung.
 
 Zwischenstand: neues Designsystem, Navigation, Kontaktliste, Chatblasen, Anhänge-/Nachrichtenmenüs, Emoji-Eingabe, neue Authentifizierung und gegliederte Einstellungen implementiert. Lokales Clippy und Build erfolgreich; echte Erststartansicht mit künstlichem Profil sichtbar geprüft. Weitere Layout- und Bedienprüfung läuft.
+
+Live-Prüfung: Erststart, Entsperren, leerer Chat und künstlicher Verlauf geprüft. Überlappende lange Kontaktnamen, zu hohe Nachrichtenaktionen und eine überdehnte erste Nachrichtenblase korrigiert. Reaktionen/Anhänge/Antworten bleiben zugänglich. Responsive Sidebar und scrollbar begrenzte Einstellungen für 720 × 540 werden nachgeprüft. Windows-Zeitdarstellung nutzt die dokumentierten nativen Zeitzonen-APIs; keine neue Laufzeitabhängigkeit.

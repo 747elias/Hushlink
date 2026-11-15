@@ -12,6 +12,7 @@ mod messenger;
 mod rich;
 mod settings;
 mod theme;
+mod timestamp;
 use integration::{Integration, Picker};
 
 const MINT: Color32 = Color32::from_rgb(48, 210, 158);
@@ -281,15 +282,12 @@ impl eframe::App for App {
                 )
                 .show(ctx, |ui| self.navigation(ui));
             if self.view.unlocked {
-                let width = if ctx.content_rect().width() < 900.0 {
-                    252.0
-                } else {
-                    320.0
-                };
+                let narrow = ctx.content_rect().width() < 900.0;
+                let width = if narrow { 260.0 } else { 320.0 };
                 egui::SidePanel::left("contacts_panel")
                     .default_width(width)
                     .min_width(224.0)
-                    .max_width(380.0)
+                    .max_width(if narrow { 260.0 } else { 380.0 })
                     .resizable(true)
                     .show_separator_line(false)
                     .frame(egui::Frame::new().fill(PANEL))

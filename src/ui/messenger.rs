@@ -10,6 +10,7 @@ pub(super) struct Presentation {
     pub favorites_only: bool,
     pub connections_open: bool,
     pub chat_search: bool,
+    pub focus_chat_search: bool,
     pub emoji_open: bool,
     pub settings_section: usize,
 }
@@ -286,20 +287,25 @@ impl App {
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
                         theme::icon(ui.painter(), r, Icon::Search, MUTED);
-                        ui.add(
+                        let response = ui.add(
                             egui::TextEdit::singleline(&mut self.rich.query)
                                 .id_salt("history-search")
                                 .hint_text("In Nachrichten suchen")
-                                .desired_width((ui.available_width() - 42.0).max(80.0))
+                                .desired_width((ui.available_width() - 50.0).max(40.0))
                                 .frame(false)
                                 .char_limit(256),
                         );
+                        if self.design.focus_chat_search {
+                            response.request_focus();
+                            self.design.focus_chat_search = false;
+                        }
                         if theme::icon_button(ui, Icon::Close, "Suche schliessen", false).clicked()
                         {
                             self.rich.query.zeroize();
                             self.design.chat_search = false;
                             self.rich.pinned_only = false;
                             self.rich.all_contacts = false;
+                            self.design.focus_chat_search = false;
                         }
                     });
                     ui.horizontal_wrapped(|ui| {
@@ -415,6 +421,12 @@ impl App {
                 .clicked()
                 {
                     self.design.chat_search = !self.design.chat_search;
+                    self.design.focus_chat_search = self.design.chat_search;
+                    if !self.design.chat_search {
+                        self.rich.query.zeroize();
+                        self.rich.pinned_only = false;
+                        self.rich.all_contacts = false;
+                    }
                 }
                 if !ready
                     && let Some(c) = &contact
@@ -450,23 +462,22 @@ impl App {
                         continue;
                     }
                     found = true;
-                    let message_day = message.timestamp_ms / 86_400_000;
+                    let message_day = timestamp::day_key(message.timestamp_ms);
                     if day != Some(message_day) {
                         day = Some(message_day);
                         ui.add_space(12.0);
-                        ui.vertical_centered(|ui| {
-                            egui::Frame::new()
-                                .fill(SURFACE)
-                                .corner_radius(8)
-                                .inner_margin(Margin::symmetric(13, 6))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new(day_label(message.timestamp_ms))
-                                            .size(10.0)
-                                            .color(MUTED),
-                                    );
-                                });
-                        });
+                        let label = ui.painter().layout_no_wrap(
+                            timestamp::day_label(message.timestamp_ms),
+                            FontId::proportional(10.0),
+                            MUTED,
+                        );
+                        let (row, _) = ui
+                            .allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+                        let chip =
+                            Rect::from_center_size(row.center(), label.size() + vec2(26.0, 12.0));
+                        ui.painter().rect_filled(chip, 8, SURFACE);
+                        ui.painter()
+                            .galley(chip.center() - label.size() * 0.5, label, MUTED);
                         ui.add_space(10.0);
                     }
                     let max_width = (ui.available_width() * 0.78).clamp(130.0, 560.0);
@@ -478,7 +489,7 @@ impl App {
                     );
                     let content_width = (galley.size().x + 4.0)
                         .max(if message.attachment_id.is_some() {
-                            210.0
+                            250.0
                         } else if message.reply_to.is_some() {
                             190.0
                         } else {
@@ -571,29 +582,32 @@ impl App {
                                                 },
                                                 MINT,
                                             );
-                                            ui.vertical(|ui| {
-                                                ui.add(egui::Label::new(&message.text).wrap());
-                                                ui.label(
-                                                    RichText::new(format!(
-                                                        "{:.1} KiB · Anhang",
-                                                        message.attachment_size as f64 / 1024.0
-                                                    ))
-                                                    .size(10.0)
-                                                    .color(MUTED),
-                                                );
-                                            });
+                                            ui.allocate_ui_with_layout(
+                                                vec2((content_width - 76.0).max(60.0), 0.0),
+                                                egui::Layout::top_down(Align::LEFT),
+                                                |ui| {
+                                                    ui.add(egui::Label::new(&message.text).wrap());
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{:.1} KiB · Anhang",
+                                                            message.attachment_size as f64 / 1024.0
+                                                        ))
+                                                        .size(10.0)
+                                                        .color(MUTED),
+                                                    );
+                                                },
+                                            );
+                                            if message.status == MessageStatus::Received
+                                                && theme::compact_icon_button(
+                                                    ui,
+                                                    Icon::Download,
+                                                    "Anhang speichern unter …",
+                                                )
+                                                .clicked()
+                                            {
+                                                export = message.attachment_id.clone();
+                                            }
                                         });
-                                        if message.status == MessageStatus::Received
-                                            && theme::icon_button(
-                                                ui,
-                                                Icon::Download,
-                                                "Anhang speichern unter …",
-                                                false,
-                                            )
-                                            .clicked()
-                                        {
-                                            export = message.attachment_id.clone();
-                                        }
                                     } else {
                                         ui.add(
                                             egui::Label::new(
@@ -612,18 +626,21 @@ impl App {
                                     {
                                         retry = Some(message.id.clone());
                                     }
-                                    if let Some(command) = self.rich.controls(
-                                        ui,
-                                        message,
-                                        ready
-                                            && self.selected.as_deref()
-                                                == Some(&message.contact_id),
-                                    ) {
-                                        commands.push(command);
-                                    }
-                                    ui.with_layout(
+                                    rich::Rich::reactions(ui, message);
+                                    ui.allocate_ui_with_layout(
+                                        vec2(content_width, 22.0),
                                         egui::Layout::right_to_left(Align::Center),
                                         |ui| {
+                                            ui.spacing_mut().item_spacing.x = 6.0;
+                                            if let Some(command) = self.rich.controls(
+                                                ui,
+                                                message,
+                                                ready
+                                                    && self.selected.as_deref()
+                                                        == Some(&message.contact_id),
+                                            ) {
+                                                commands.push(command);
+                                            }
                                             if message.outgoing {
                                                 let (r, response) = ui.allocate_exact_size(
                                                     vec2(16.0, 14.0),
@@ -634,11 +651,13 @@ impl App {
                                                 response.on_hover_text(label);
                                             }
                                             ui.label(
-                                                RichText::new(bubble_time(message.timestamp_ms))
-                                                    .size(10.0)
-                                                    .color(MUTED),
+                                                RichText::new(timestamp::clock(
+                                                    message.timestamp_ms,
+                                                ))
+                                                .size(10.0)
+                                                .color(MUTED),
                                             )
-                                            .on_hover_text("Zeit in UTC");
+                                            .on_hover_text(timestamp::zone_label());
                                             if message.edited {
                                                 ui.label(
                                                     RichText::new("bearbeitet")
@@ -1014,15 +1033,8 @@ fn contact_row(
     let x = rect.left() + 76.0;
     let right = rect.right() - 20.0;
     let max_width = (right - x - 42.0).max(40.0);
-    let name = ui
-        .painter()
-        .layout(c.name.clone(), FontId::proportional(14.0), TEXT, max_width);
-    ui.painter()
-        .with_clip_rect(Rect::from_min_max(
-            pos2(x, rect.top()),
-            pos2(right - 28.0, rect.bottom()),
-        ))
-        .galley(pos2(x, rect.top() + 18.0), name, TEXT);
+    let name = one_line(ui, c.name.clone(), 14.0, TEXT, max_width);
+    ui.painter().galley(pos2(x, rect.top() + 18.0), name, TEXT);
     let preview = Zeroizing::new(
         last.map(|m| {
             if m.attachment_id.is_some() {
@@ -1038,20 +1050,20 @@ fn contact_row(
         .unwrap_or_else(|| "Noch keine Nachrichten".into()),
     );
     let preview = Zeroizing::new(preview.chars().take(100).collect::<String>());
-    let galley =
-        ui.painter()
-            .layout_no_wrap(preview.to_string(), FontId::proportional(12.0), MUTED);
+    let galley = one_line(
+        ui,
+        preview.to_string(),
+        12.0,
+        MUTED,
+        (right - x - 23.0).max(25.0),
+    );
     ui.painter()
-        .with_clip_rect(Rect::from_min_max(
-            pos2(x, rect.top()),
-            pos2(right - 22.0, rect.bottom()),
-        ))
         .galley(pos2(x, rect.top() + 44.0), galley, MUTED);
     if let Some(last) = last {
         ui.painter().text(
             pos2(right, rect.top() + 19.0),
             Align2::RIGHT_TOP,
-            bubble_time(last.timestamp_ms),
+            timestamp::clock(last.timestamp_ms),
             FontId::proportional(10.0),
             if c.unread > 0 { MINT } else { MUTED },
         );
@@ -1076,22 +1088,16 @@ fn contact_row(
     }
     response
 }
-fn bubble_time(timestamp: u64) -> String {
-    let minutes = timestamp / 60_000;
-    format!("{:02}:{:02}", (minutes / 60) % 24, minutes % 60)
-}
-fn day_label(timestamp: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() / 86_400);
-    let day = timestamp / 86_400_000;
-    if day == now {
-        "HEUTE".into()
-    } else if day + 1 == now {
-        "GESTERN".into()
-    } else {
-        "FRÜHERES GESPRÄCH".into()
-    }
+fn one_line(
+    ui: &egui::Ui,
+    text: String,
+    size: f32,
+    color: Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text, FontId::proportional(size), color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+    ui.painter().layout_job(job)
 }
 fn delivery(status: MessageStatus) -> (Icon, Color32, &'static str) {
     match status {

@@ -37,8 +37,61 @@ impl Rich {
         ready: bool,
     ) -> Option<Command> {
         let mut command = None;
-        ui.horizontal(|ui| {
-            if !m.reaction_local.is_empty() || !m.reaction_remote.is_empty() {
+        theme::compact_icon_menu(ui, theme::Icon::More, "Nachrichtenaktionen", |ui| {
+            if ui
+                .button(if m.pinned {
+                    "Nicht mehr merken"
+                } else {
+                    "Nachricht merken"
+                })
+                .clicked()
+            {
+                command = Some(Command::Pin {
+                    id: m.id.clone(),
+                    pinned: !m.pinned,
+                });
+                ui.close();
+            }
+            if ready && !m.action_pending && m.status == MessageStatus::Received {
+                if ui.button("Antworten").clicked() {
+                    self.reply = Some(m.id.clone());
+                    ui.close();
+                }
+                ui.menu_button("Reagieren", |ui| {
+                    for emoji in crate::conversation::REACTIONS {
+                        if ui
+                            .button(if emoji.is_empty() {
+                                "Reaktion entfernen"
+                            } else {
+                                emoji
+                            })
+                            .clicked()
+                        {
+                            command = Some(Command::Conversation(Action::React {
+                                target: m.id.clone(),
+                                revision: m.reaction_revision + 1,
+                                reaction: (*emoji).into(),
+                            }));
+                            ui.close();
+                        }
+                    }
+                });
+                if m.outgoing
+                    && m.attachment_id.is_none()
+                    && ui.button("Nachricht bearbeiten").clicked()
+                {
+                    self.edit = Some(m.id.clone());
+                    self.edit_text.zeroize();
+                    self.edit_text.clone_from(&m.text);
+                    ui.close();
+                }
+            }
+        });
+        command
+    }
+    pub(super) fn reactions(ui: &mut egui::Ui, m: &MessageView) {
+        if !m.reaction_local.is_empty() || !m.reaction_remote.is_empty() {
+            ui.horizontal(|ui| {
                 for (reaction, label) in [
                     (&m.reaction_local, "Deine Reaktion"),
                     (&m.reaction_remote, "Reaktion der Gegenstelle"),
@@ -54,60 +107,8 @@ impl Rich {
                             });
                     }
                 }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                theme::icon_menu(ui, theme::Icon::More, "Nachrichtenaktionen", |ui| {
-                    if ui
-                        .button(if m.pinned {
-                            "Nicht mehr merken"
-                        } else {
-                            "Nachricht merken"
-                        })
-                        .clicked()
-                    {
-                        command = Some(Command::Pin {
-                            id: m.id.clone(),
-                            pinned: !m.pinned,
-                        });
-                        ui.close();
-                    }
-                    if ready && !m.action_pending && m.status == MessageStatus::Received {
-                        if ui.button("Antworten").clicked() {
-                            self.reply = Some(m.id.clone());
-                            ui.close();
-                        }
-                        ui.menu_button("Reagieren", |ui| {
-                            for emoji in crate::conversation::REACTIONS {
-                                if ui
-                                    .button(if emoji.is_empty() {
-                                        "Reaktion entfernen"
-                                    } else {
-                                        emoji
-                                    })
-                                    .clicked()
-                                {
-                                    command = Some(Command::Conversation(Action::React {
-                                        target: m.id.clone(),
-                                        revision: m.reaction_revision + 1,
-                                        reaction: (*emoji).into(),
-                                    }));
-                                    ui.close();
-                                }
-                            }
-                        });
-                        if m.outgoing
-                            && m.attachment_id.is_none()
-                            && ui.button("Nachricht bearbeiten").clicked()
-                        {
-                            self.edit = Some(m.id.clone());
-                            self.edit_text.zeroize();
-                            self.edit_text.clone_from(&m.text);
-                            ui.close();
-                        }
-                    }
-                });
             });
-        });
+        }
         if m.action_pending {
             ui.label(
                 RichText::new("Änderung noch unbestätigt")
@@ -115,7 +116,6 @@ impl Rich {
                     .color(Color32::from_rgb(239, 191, 118)),
             );
         }
-        command
     }
     pub(super) fn matches(&self, m: &MessageView) -> bool {
         (!self.pinned_only || m.pinned)
@@ -252,7 +252,7 @@ if ui.button("Behalten").clicked(){self.rich.delete_item=None;}}
         }
         if self.rich.restore_open && !self.view.unlocked {
             let mut open = true;
-            egui::Window::new("Verschlüsselte Sicherung wiederherstellen").open(&mut open).collapsible(false).default_width(470.0).show(ctx,|ui|{
+            egui::Window::new("Verschlüsselte Sicherung wiederherstellen").open(&mut open).collapsible(false).default_width(470.0).vscroll(true).max_height((ctx.content_rect().height()-80.0).max(220.0)).show(ctx,|ui|{
                 ui.label("Die Sicherung wird geprüft und an einen neuen, freien Speicherort kopiert. Vorhandene Tresore und die Sicherung bleiben erhalten. Danach wird die neue Kopie ausgewählt.");
                 if ui.button("Sicherungsdatei auswählen …").clicked(){self.pick(Picker::RestoreSource,ctx);}
                 if let Some(p)=&self.rich.restore_source{ui.add(egui::Label::new(p.display().to_string()).wrap());}
@@ -282,7 +282,7 @@ if ui.button("Behalten").clicked(){self.rich.delete_item=None;}}
             return;
         };
         let mut open = true;
-        egui::Window::new("Nachricht bearbeiten").open(&mut open).collapsible(false).default_width(430.0).show(ctx,|ui|{
+        egui::Window::new("Nachricht bearbeiten").open(&mut open).collapsible(false).default_width(430.0).vscroll(true).max_height((ctx.content_rect().height()-80.0).max(220.0)).show(ctx,|ui|{
             ui.label("Die Gegenstelle sieht die bearbeitete Nachricht mit Kennzeichnung. Kopien des ursprünglichen Textes können bestehen bleiben.");
             ui.add_sized([ui.available_width(),110.0],egui::TextEdit::multiline(&mut self.rich.edit_text));
             let ready=self.view.peer.as_ref().is_some_and(|p|p.ready && p.id==message.contact_id);

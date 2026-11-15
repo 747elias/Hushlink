@@ -322,13 +322,25 @@ pub(super) fn icon(p: &egui::Painter, rect: Rect, kind: Icon, color: Color32) {
 }
 
 pub(super) fn icon_button(ui: &mut egui::Ui, kind: Icon, label: &str, active: bool) -> Response {
+    sized_icon_button(ui, kind, label, active, 38.0)
+}
+pub(super) fn compact_icon_button(ui: &mut egui::Ui, kind: Icon, label: &str) -> Response {
+    sized_icon_button(ui, kind, label, false, 26.0)
+}
+fn sized_icon_button(
+    ui: &mut egui::Ui,
+    kind: Icon,
+    label: &str,
+    active: bool,
+    size: f32,
+) -> Response {
     let fill = if active {
         SOFT_GREEN
     } else {
         Color32::TRANSPARENT
     };
     let response = ui.add_sized(
-        [38.0, 38.0],
+        [size, size],
         egui::Button::new("")
             .fill(fill)
             .stroke(Stroke::NONE)
@@ -346,7 +358,7 @@ pub(super) fn icon_button(ui: &mut egui::Ui, kind: Icon, label: &str, active: bo
     };
     icon(
         ui.painter(),
-        Rect::from_center_size(response.rect.center(), vec2(24.0, 24.0)),
+        Rect::from_center_size(response.rect.center(), Vec2::splat(size.min(24.0))),
         kind,
         color,
     );
@@ -388,7 +400,7 @@ pub(super) fn avatar(p: &egui::Painter, center: Pos2, radius: f32, name: &str, i
     p.circle_filled(center, radius, color);
     let initials = Zeroizing::new(
         name.split_whitespace()
-            .filter_map(|w| w.chars().next())
+            .filter_map(|w| w.chars().find(|c| c.is_alphanumeric()))
             .take(2)
             .flat_map(char::to_uppercase)
             .collect::<String>(),
@@ -432,17 +444,44 @@ pub(super) fn icon_menu(
     label: &str,
     contents: impl FnOnce(&mut egui::Ui),
 ) -> Response {
+    sized_icon_menu(ui, kind, label, 34.0, contents)
+}
+pub(super) fn compact_icon_menu(
+    ui: &mut egui::Ui,
+    kind: Icon,
+    label: &str,
+    contents: impl FnOnce(&mut egui::Ui),
+) -> Response {
+    sized_icon_menu(ui, kind, label, 22.0, contents)
+}
+fn sized_icon_menu(
+    ui: &mut egui::Ui,
+    kind: Icon,
+    label: &str,
+    size: f32,
+    contents: impl FnOnce(&mut egui::Ui),
+) -> Response {
     let response = ui
         .scope(|ui| {
-            ui.spacing_mut().interact_size = vec2(34.0, 32.0);
-            ui.spacing_mut().button_padding = vec2(7.0, 6.0);
-            ui.menu_button(" ", contents).response
+            ui.spacing_mut().interact_size = Vec2::splat(size);
+            ui.spacing_mut().button_padding = Vec2::ZERO;
+            egui::containers::menu::MenuButton::from_button(
+                egui::Button::new("")
+                    .frame(false)
+                    .min_size(Vec2::splat(size)),
+            )
+            .ui(ui, |ui| {
+                ui.spacing_mut().interact_size = vec2(36.0, 34.0);
+                ui.spacing_mut().button_padding = vec2(12.0, 8.0);
+                contents(ui);
+            })
+            .0
         })
         .inner;
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
     icon(
         ui.painter(),
-        Rect::from_center_size(response.rect.center(), vec2(21.0, 21.0)),
+        Rect::from_center_size(response.rect.center(), Vec2::splat(size.min(21.0))),
         kind,
         MUTED,
     );

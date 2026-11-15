@@ -54,7 +54,7 @@ impl App {
                 ui.add_space(12.0);
                 egui::ScrollArea::vertical()
                     .id_salt(("settings-section", self.design.settings_section))
-                    .max_height((ctx.content_rect().height() - 240.0).max(200.0))
+                    .max_height((ctx.content_rect().height() - 390.0).max(96.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         match self.design.settings_section {
