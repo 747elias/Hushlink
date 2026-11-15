@@ -264,7 +264,7 @@ impl App {
             .show_inside(ui, |ui| self.conversation_header(ui, ready));
         if self.selected.is_none() && !self.rich.all_contacts {
             theme::wallpaper(ui.painter(), ui.available_rect_before_wrap());
-            self.empty_conversation(ui, false);
+            self.empty_conversation(ui);
             return;
         }
         egui::TopBottomPanel::bottom("message_composer")
@@ -891,25 +891,34 @@ impl App {
             );
         });
     }
-    fn empty_conversation(&mut self, ui: &mut egui::Ui, compact: bool) {
-        ui.add_space((ui.available_height() * 0.20).max(24.0));
+    fn empty_conversation(&mut self, ui: &mut egui::Ui) {
+        let compact = ui.available_width() < 560.0 || ui.available_height() < 520.0;
+        ui.add_space(if compact {
+            20.0
+        } else {
+            (ui.available_height() * 0.18).max(24.0)
+        });
         ui.vertical_centered(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(120.0, 100.0), Sense::hover());
-            ui.painter()
-                .circle_filled(r.center(), 48.0, theme::SOFT_GREEN.gamma_multiply(0.50));
+            let size = if compact { 72.0 } else { 100.0 };
+            let (r, _) = ui.allocate_exact_size(vec2(120.0, size), Sense::hover());
+            ui.painter().circle_filled(
+                r.center(),
+                size * 0.48,
+                theme::SOFT_GREEN.gamma_multiply(0.50),
+            );
             theme::icon(
                 ui.painter(),
-                Rect::from_center_size(r.center(), vec2(50.0, 50.0)),
+                Rect::from_center_size(r.center(), Vec2::splat(size * 0.5)),
                 Icon::Chat,
                 MINT,
             );
-            ui.add_space(22.0);
+            ui.add_space(if compact { 12.0 } else { 22.0 });
             ui.label(
                 RichText::new("Nah dran. Ganz privat.")
                     .size(if compact { 25.0 } else { 31.0 })
                     .color(TEXT),
             );
-            ui.add_space(12.0);
+            ui.add_space(if compact { 6.0 } else { 12.0 });
             ui.add(
                 egui::Label::new(
                     RichText::new(
@@ -919,15 +928,23 @@ impl App {
                 )
                 .wrap(),
             );
-            ui.add_space(24.0);
+            ui.add_space(if compact { 16.0 } else { 24.0 });
             if theme::primary(ui, "Neue Verbindung").clicked() {
                 self.design.connections_open = true;
             }
-            ui.add_space(36.0);
-            ui.horizontal_wrapped(|ui| {
-                theme::badge(ui, Icon::Bluetooth, "Direkt per Bluetooth", MUTED);
-                theme::badge(ui, Icon::Lock, "Ende-zu-Ende verschlüsselt", MUTED);
-            });
+            ui.add_space(if compact { 14.0 } else { 36.0 });
+            if compact {
+                ui.label(
+                    RichText::new("Direkt per Bluetooth · Ende-zu-Ende verschlüsselt")
+                        .size(10.0)
+                        .color(MUTED),
+                );
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    theme::badge(ui, Icon::Bluetooth, "Direkt per Bluetooth", MUTED);
+                    theme::badge(ui, Icon::Lock, "Ende-zu-Ende verschlüsselt", MUTED);
+                });
+            }
         });
     }
     fn pending_changes(&mut self, ui: &mut egui::Ui, ready: bool) {

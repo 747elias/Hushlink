@@ -50,3 +50,14 @@ verschlüsselte Sicherungen und Speicherübersicht hinzu. Beide PCs benötigen v
 Vor der Migration eine verschlüsselte Kopie behalten. Neue Bedienung und Grenzen
 stehen in README.md; Windows-Hello- und Signierstatus sind in docs dokumentiert.
 Ein v0.4-Release ist vor Einrichtung und Prüfung des echten Signierdienstes gesperrt.
+
+### Neue Oberfläche im v0.4-Entwicklungsbuild
+
+Plus neben **Chats** öffnet die Verbindungssuche; die linke Navigation öffnet
+Dateiübertragungen. Im Chatkopf stehen Wiederverbinden, Nachrichtensuche und
+Chat-Menü, an jeder Nachricht ein Dreipunktmenü. Dateien/Bilder im verbundenen
+Chat über die Büroklammer anbieten. Das Schloss unten links oder Strg+L sperrt.
+Einstellungen: **Allgemein** für Tresorpfad/Windows/Updates, **Privatsphäre** für
+Hinweise/Schreibanzeige, **Sicherheit** für Passwort/Hello/Sperre und **Speicher**
+für verschlüsselte Sicherungen. Die veröffentlichten v0.3-Downloads besitzen
+noch die vorherige Oberfläche.

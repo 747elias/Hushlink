@@ -347,6 +347,7 @@ fn sized_icon_button(
             .corner_radius(12),
     );
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
+    focus_ring(ui, &response);
     let color = if !ui.is_enabled() {
         MUTED.gamma_multiply(0.38)
     } else if active {
@@ -363,6 +364,16 @@ fn sized_icon_button(
         color,
     );
     response.on_hover_text(label)
+}
+fn focus_ring(ui: &egui::Ui, response: &Response) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect.shrink(1.0),
+            8,
+            Stroke::new(1.0, MINT),
+            StrokeKind::Inside,
+        );
+    }
 }
 pub(super) fn primary(ui: &mut egui::Ui, label: &str) -> Response {
     ui.add(
@@ -479,11 +490,16 @@ fn sized_icon_menu(
         })
         .inner;
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
+    focus_ring(ui, &response);
     icon(
         ui.painter(),
         Rect::from_center_size(response.rect.center(), Vec2::splat(size.min(21.0))),
         kind,
-        MUTED,
+        if response.hovered() || response.has_focus() {
+            TEXT
+        } else {
+            MUTED
+        },
     );
     response.on_hover_text(label)
 }

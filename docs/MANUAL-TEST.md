@@ -123,3 +123,33 @@ Status: **nicht durchgeführt in der Linux-Cloud-Umgebung**. GitHub-Windows-Runn
 
 Alle diese physischen Hardwarefälle sind hier weiterhin **nicht durchgeführt**.
 Automatische und sichtbare Cloud-UI-Prüfungen werden separat in VALIDATION.md geführt.
+
+## Messenger-Design – visuelle Abnahme
+
+Mit getrennten, ausdrücklich künstlichen Profilen prüfen; keine privaten
+Verläufe als Testbilder oder CI-Artefakte verwenden.
+
+1. Erststart und vorhandenen Tresor bei 720 × 540 sowie 1120 × 720 öffnen;
+   Formular und Speicherort/Wiederherstellung per Scrollen/Tastatur erreichen.
+2. Chatliste: lange Namen/Vorschauen werden mit Auslassung gekürzt, Uhrzeit und
+   Zähler überlappen nicht. Alle/Ungelesen/Favoriten und Suche tatsächlich filtern.
+3. Ein-/mehrzeilige Nachrichten, Umlaute, Emoji, lange Wörter, Antworten,
+   Bearbeitung, Reaktionen, Pins und Anhänge ansehen. Zum Anfang/Ende scrollen:
+   keine unverhältnismässig hohen Blasen, keine abgeschnittenen Aktionsmenüs.
+4. Chat-Lupe öffnet und fokussiert die Suche. Treffer, leere Suche, Alle Chats
+   und Gemerkte prüfen. Dreipunktmenü offline erlaubt nur lokale Aktionen;
+   Eingabe und Netzwerkaktionen bleiben ohne bestätigte Verbindung gesperrt.
+5. Alle vier Einstellungskategorien bei kleinem Fenster durchscrollen.
+   Wiederherstellung, Kontaktverwaltung, QR- und Dateifenster bleiben erreichbar.
+6. Mit fokussierter Suche, offenem Menü und ausgefüllter Eingabe Strg+L bzw.
+   Schloss klicken. Keine früheren Namen/Inhalte/Entwürfe nach der Sperre;
+   Entsperren stellt keine alte Verbindung oder Suche wieder her.
+7. Unter Windows 100/125/150/200-%-Skalierung sowie Monitorwechsel prüfen.
+   Zeitstempel mit lokaler Uhr/Zeitzone inklusive Mitternacht/Sommerzeit
+   vergleichen. Alle Icons haben sichtbare Hover-Erklärungen/Tastaturfokus.
+
+Die Linux-Live-Prüfung deckt Erststart/Entsperren, getrennten künstlichen Verlauf,
+Umlaute/Zeilenumbrüche, lange Namen, Anhänge/Antworten/Reaktionen/Pins, Suche,
+kleines Fenster, Einstellungen und Strg+L ab. Windows-DPI-/Emoji-/Zeitzonen-
+Abnahme und reale Zwei-PC-Zustände bleiben manuell erforderlich. Der automatische
+Windows-Start-/Installer-Test ist kein Ersatz dafür.

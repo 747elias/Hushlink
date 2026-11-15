@@ -2,6 +2,9 @@
 
 Alle vorgesehenen Erweiterungen sind im Entwicklungsbranch implementiert:
 
+- Neue dunkle Messenger-Oberfläche mit Mint-Akzenten, eigener Navigation,
+  Chatvorschauen/Suchfiltern, kompakten Blasen und gegliederten Einstellungen.
+  Inter und eigene Icons sind lokal verfügbar; keine UI-Netzwerkanfragen.
 - Antworten mit Referenz, Emoji-Reaktionen und gekennzeichnete Bearbeitungen;
   verschlüsselte dauerhafte Bestätigungen und sichere explizite Wiederholung.
 - Optionale Schreibanzeige, lokale Suche über Kontakte, gemerkte Nachrichten,

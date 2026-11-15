@@ -1,6 +1,16 @@
 # Prüfstand v0.4.0 – noch kein veröffentlichter Release
 
 
+Aktueller UI-Ausbau: `feature/messenger-redesign`. Neue lokale Inter-/Icon-
+Oberfläche, responsive Navigation/Chats/Formulare/Einstellungen und kompakte
+Nachrichtenaktionen. Echte Linux-Live-Prüfung mit getrenntem künstlichem Tresor,
+kleinem Fenster, Suche, Sperre und Klartextscan dokumentiert in
+[PLAN-DESIGN.md](PLAN-DESIGN.md). Der
+[exakte aktuelle Branch-CI-Lauf](https://github.com/747elias/Hushlink/actions/workflows/ci.yml?query=branch%3Afeature%2Fmessenger-redesign)
+und dessen Artefakt-Commit bestimmen den jeweiligen Windows-Testbuild. Der
+folgende Abschlussstand beschreibt die bereits geprüfte Funktionsbasis vor
+diesem UI-Ausbau; Hardware-/Signiergrenzen gelten weiterhin.
+
 Abschlussstand der Implementierung: `9cbf888e3f14156ba52c138a0588aa8a584a9308`.
 **102 lokale Tests und 105 Windows-Tests**, Format, strenges Clippy, RFCOMM-Probe,
 MSVC-Release-Build, PE-/Paketprüfung und sämtliche Start-/Installer-Smokes grün.

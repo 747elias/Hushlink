@@ -2,6 +2,8 @@
 
 ## 0.4.0 – in Entwicklung, Veröffentlichung durch Signierkonfiguration blockiert
 
+- Vollständig überarbeitete Messenger-Oberfläche: Navigation, durchsuchbare Chatliste mit Vorschauen/Filtern, Initialen, kompakte Nachrichtenblasen, Emoji-Eingabe und Aktions-/Anhangmenüs. Neuer Erststart/Entsperren und gegliederte Einstellungen; responsive Spalte und Scrollbereiche für kleine Fenster. Lokale Windows-Uhrzeiten, lokal eingebettete Inter-Schrift und eigene Vektoricons.
+
 - Authentifizierte Antworten, Bearbeitungen und Emoji-Reaktionen mit dauerhaften verschlüsselten Bestätigungen und sicherer Wiederholung nach neuer Verbindung.
 - Optionale Schreibanzeige, lokale Verlaufssuche, Pins, Kontakt-Stummschaltung und Sperre unbekannter Anfragen.
 - PNG-Zwischenablageversand mit bewusster Freigabe, Rate und Restzeit, vollständiger QR-Sicherheitsvergleich per Kamera.

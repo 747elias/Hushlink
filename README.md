@@ -6,7 +6,7 @@ Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversan
 
 ## Entwicklungsstand v0.4.0
 
-Auf `feature/rich-chat-hello-signing` sind zusätzlich Antworten/Zitate,
+Auf `feature/messenger-redesign` sind zusätzlich Antworten/Zitate,
 Emoji-Reaktionen, gekennzeichnete Bearbeitungen, optionale Schreibanzeige,
 Volltextsuche und gemerkte Nachrichten implementiert. Dazu kommen Kontakt-
 Stummschaltung, Anfragebegrenzung, Übertragungsrate/Restzeit, bestätigter
@@ -21,6 +21,39 @@ Die zuletzt veröffentlichten v0.3-Downloads unten enthalten diese Erweiterungen
 noch nicht. Konkrete Nachweise und verbleibende Hardwaretests stehen im
 [Prüfstand](docs/VALIDATION.md), [v0.4-Arbeitsstand](docs/RELEASE-v0.4.0.md) und
 [manuellen Testablauf](docs/MANUAL-TEST.md).
+
+## Neue Messenger-Oberfläche im Entwicklungsbuild
+
+Das Design orientiert sich an vertrauten Desktop-Messengern: dunkles Petrol,
+Mint-Akzente, eingebettete Inter-Schrift, eigene Icons und kompakte Chatblasen.
+Die bisher veröffentlichten v0.3-Downloads enthalten dieses Design noch nicht.
+
+![Echte Hushlink-Oberfläche mit ausdrücklich künstlichem, getrenntem Testprofil; keine Bluetooth-Verbindung](docs/images/messenger-test.png)
+
+Die Abbildung zeigt die laufende Linux-Entwicklungsansicht mit künstlichen Daten,
+keinen Hardwaretest. Windows verwendet den nativen MSVC-/Direct3D-Build.
+
+- Links: Chats, neue Bluetooth-Verbindung und Dateiübertragungen. Das Plus öffnet
+  Empfang/Suche; der Verbindungsassistent bleibt dort erreichbar.
+- Kontakte mit letzter Nachricht, Uhrzeit und ungelesenem Zähler; Suche sowie
+  Filter **Alle**, **Ungelesen** und **Favoriten**. Kontextmenü zum Verwalten.
+- Im Chatkopf: erneut verbinden, Nachrichtensuche und **Chat-Menü**. Das Menü
+  enthält Kontaktverwaltung, lokales Löschen und Trennen.
+- An einer Nachricht das Dreipunktmenü für Merken, Antworten, Reagieren oder
+  Bearbeiten verwenden. Die verfügbaren Aktionen richten sich nach echtem
+  Verbindungs- und Bestätigungszustand. Zwei Häkchen bedeuten weiterhin eine
+  verschlüsselte Speicherbestätigung, keine Lesebestätigung; mit der Maus darüber
+  erscheint die Erklärung. Unter Windows zeigen Zeitstempel die lokale Uhrzeit.
+- Das Büroklammermenü im Eingabebereich bietet Dateien und Bilder an;
+  der Downloadknopf am gespeicherten Anhang exportiert bewusst Klartext.
+  Ohne bestätigte Verbindung bleibt die Eingabe gesperrt.
+- Unten links: Einstellungen, Schloss und Profil. Die Einstellungen sind in
+  **Allgemein**, **Privatsphäre**, **Sicherheit** und **Speicher** gegliedert.
+  Tresorpfad, Autostart und Updates stehen unter Allgemein, Passwort/Hello und
+  Inaktivität unter Sicherheit, verschlüsselte Sicherungen unter Speicher.
+
+[Designplan und Prüfstand](docs/PLAN-DESIGN.md). Für die folgenden allgemeinen
+Einrichtungsschritte gelten bei v0.3 noch dessen ursprüngliche Bedienelemente.
 
 ## Starten und benutzen
 
@@ -56,13 +89,13 @@ Vor dem Wechsel auf v0.3 den geschlossenen Tresor sichern. v0.3 liest vorhandene
 
 ## Bedienung der Erweiterungen v0.4
 
-- Unter Nachrichten **Antworten**, **Reaktion** oder bei eigenen Texten
-  **Bearbeiten** wählen. Änderungen bleiben bis zur verschlüsselten Bestätigung
+- Im Dreipunktmenü einer Nachricht **Antworten**, **Reagieren** oder bei eigenen Texten
+  **Nachricht bearbeiten** wählen. Änderungen bleiben bis zur verschlüsselten Bestätigung
   als unbestätigt gekennzeichnet. Nach Abbruch neu verbinden und ausstehende
   Änderungen im Chat explizit erneut übertragen. Der ursprüngliche Text kann bei
   der Gegenstelle oder in Sicherungen weiterhin als Kopie vorhanden sein.
-- Mit **Merken** Nachrichten lokal anheften. Suchfeld, **Alle Kontakte** und
-  **Nur gemerkte** filtern den entsperrten Verlauf; der Index bleibt im Speicher.
+- Mit **Nachricht merken** Nachrichten lokal anheften. Die Lupe im Chatkopf,
+  **Alle Chats** und **Gemerkte** filtern den entsperrten Verlauf; der Index bleibt im Speicher.
 - In Einstellungen die standardmässig ausgeschaltete Schreibanzeige einschalten.
   Unter Kontakt verwalten Hinweise für eine Stunde/einen Tag oder dauerhaft
   stummschalten. Ungelesene Zähler bleiben sichtbar. Unbekannte Anfragen lassen
