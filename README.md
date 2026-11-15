@@ -6,7 +6,7 @@ Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversan
 
 ## Entwicklungsstand v0.4.0
 
-Auf `feature/messenger-redesign` sind zusätzlich Antworten/Zitate,
+Auf `main` sind zusätzlich Antworten/Zitate,
 Emoji-Reaktionen, gekennzeichnete Bearbeitungen, optionale Schreibanzeige,
 Volltextsuche und gemerkte Nachrichten implementiert. Dazu kommen Kontakt-
 Stummschaltung, Anfragebegrenzung, Übertragungsrate/Restzeit, bestätigter

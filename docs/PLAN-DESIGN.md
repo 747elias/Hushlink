@@ -31,7 +31,7 @@ keinen der eindeutigen Testklartexte/Passwörter. Testdaten und Testtresore werd
 nicht ausgeliefert; nur eine ausdrücklich beschriftete Live-Abbildung wird
 dokumentiert. Tastaturfokus für eigene Iconknöpfe ist sichtbar.
 
-Der [CI-Lauf dieses Branches](https://github.com/747elias/Hushlink/actions/workflows/ci.yml?query=branch%3Afeature%2Fmessenger-redesign)
+Der [CI-Lauf dieses Branches](https://github.com/747elias/Hushlink/actions/workflows/ci.yml?query=branch%3Amain)
 führt Format, strenges Windows-Clippy, vollständige Tests, MSVC-Release-Build,
 EXE-Start, PE-/Paketprüfung sowie Installer/Tray/Autostart/Update-Übergabe und
 Deinstallation aus. Sein exakter Commit und seine Download-Artefakte sind der
@@ -49,3 +49,8 @@ Offizielle Referenzen für die Windows-Zeitdarstellung (abgerufen 15.11.2026):
 [SystemTimeToTzSpecificLocalTimeEx](https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/nf-timezoneapi-systemtimetotzspecificlocaltimeex).
 Die Konvertierung nutzt die eingestellte dynamische Windows-Zeitzone, prüft beide
 API-Ergebnisse und überlaufsichere FILETIME-Umrechnung. Linux zeigt bewusst UTC.
+
+Branch-Konsolidierung: `main` enthält den neuesten App-Stand und die gesamte
+bisherige Branch-Historie, einschliesslich des separat begonnenen lokalen
+Gerüsts. Die früheren Feature-Branches wurden auf Wunsch entfernt; der aktuelle
+CI-Lauf gehört zu `main`. Die App-Dateien wurden dabei nicht verändert.
