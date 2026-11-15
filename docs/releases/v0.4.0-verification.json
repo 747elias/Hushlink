@@ -16,5 +16,12 @@
     "Hushlink-v0.4.0-windows-x64.zip": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.zip",
     "SHA256SUMS.txt": "https://github.com/747elias/Hushlink/releases/download/v0.4.0/SHA256SUMS.txt"
   },
-  "verification": "Downloaded app, installer and ZIP; sizes, SHA-256, tag commit, GUI PE and ZIP identity of both EXEs verified; no Bluetooth hardware test."
+  "verification": "Downloaded app, installer and ZIP; sizes, SHA-256, tag commit, GUI PE and ZIP identity of both EXEs verified; no Bluetooth hardware test.",
+  "publication_method": "Explicit maintainer-approved unsigned prerelease; exact successful CI assets reused",
+  "signed_tag_workflow": {
+    "run_id": 43709817861,
+    "conclusion": "failure",
+    "failed_step": "Require authorized signing configuration",
+    "explanation": "No signing service is configured. Unsigned publication was explicitly authorized as a one-release exception; successful exact-commit CI run 43707154440 supplied the assets."
+  }
 }

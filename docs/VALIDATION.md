@@ -160,3 +160,7 @@ Die endgültigen EXE-/ZIP-Prüfsummen werden pro Release neu berechnet. Der
 Release-Workflow veröffentlicht nach seinen Prüfungen und lädt die tatsächlichen
 Release-Assets anschliessend unabhängig erneut herunter. Der letzte Job speichert
 Commit-, Hash-, PE- und ZIP-Gleichheitsnachweise als JSON-Artefakt.
+
+## Signierlauf der ausdrücklich unsignierten Ausnahme
+
+Die tagbasierte Signierpipeline stoppt bei dieser ausdrücklich freigegebenen unsignierten Ausnahme an der fehlenden Signierkonfiguration ([Signierlauf](https://github.com/747elias/Hushlink/actions/runs/43709817861)). Das ist kein fehlgeschlagener App-Test. Veröffentlicht wurden die unveränderten Dateien aus dem erfolgreichen CI-Lauf des exakten Release-Commits; die tatsächlichen öffentlichen Downloads wurden separat geprüft.
