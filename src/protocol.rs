@@ -23,9 +23,9 @@ pub const MAX_SESSION_FRAMES: usize = 65_536;
 pub const MAX_FILE_SIZE: u64 = 20 * 1024 * 1024;
 pub const MAX_FILE_CHUNK: usize = 8_192;
 pub const MAX_FILE_NAME: usize = 180;
-const CONTEXT: &[u8] = b"Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
-const MAGIC: &[u8; 5] = b"HUSH\x04";
-const VERSION: u8 = 4;
+const CONTEXT: &[u8] = b"Hushlink/v5/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256";
+const MAGIC: &[u8; 5] = b"HUSH\x05";
+const VERSION: u8 = 5;
 pub type MessageId = [u8; 16];
 pub type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -189,6 +189,13 @@ pub enum Trust {
 /// Contains application plaintext. Owners must clear it when locking.
 #[derive(Zeroize)]
 pub enum Event {
+    Group {
+        id: MessageId,
+        packet: crate::groups::Packet,
+    },
+    GroupAck {
+        id: MessageId,
+    },
     Hello {
         name: String,
     },
@@ -349,6 +356,8 @@ pub fn handshake<S: Read + Write>(
         awaiting_ack: HashSet::new(),
         pending_action_ack: HashSet::new(),
         awaiting_action_ack: HashSet::new(),
+        awaiting_group_ack: HashSet::new(),
+        pending_group_ack: HashSet::new(),
         typing_sent: 0,
         typing_received: 0,
         incoming_file: None,
@@ -422,6 +431,8 @@ pub struct Session {
     awaiting_ack: HashSet<MessageId>,
     pending_action_ack: HashSet<MessageId>,
     awaiting_action_ack: HashSet<MessageId>,
+    awaiting_group_ack: HashSet<MessageId>,
+    pending_group_ack: HashSet<MessageId>,
     typing_sent: u32,
     typing_received: u32,
     incoming_file: Option<FileTransfer>,
@@ -560,6 +571,32 @@ impl Session {
         }
         let mut plain = Zeroizing::new(vec![VERSION, 15]);
         plain.extend_from_slice(&id);
+        self.encrypt(&plain)
+    }
+    pub fn send_group(&mut self, id: MessageId, packet: &crate::groups::Packet) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        if self.sent.len() >= MAX_SESSION_MESSAGES {
+            return Err(ProtocolError::SessionLimit);
+        }
+        if self.sent.contains(&id) || self.received.contains(&id) {
+            return Err(ProtocolError::InvalidMessage);
+        }
+        let bytes = packet.encode().map_err(|_| ProtocolError::InvalidMessage)?;
+        let mut plain = Zeroizing::new(vec![VERSION, 17]);
+        plain.extend(id);
+        plain.extend_from_slice(&bytes);
+        let frame = self.encrypt(&plain)?;
+        self.sent.insert(id);
+        self.awaiting_group_ack.insert(id);
+        Ok(frame)
+    }
+    pub fn acknowledge_group(&mut self, id: MessageId) -> Result<Vec<u8>> {
+        self.ensure_ready()?;
+        if !self.pending_group_ack.remove(&id) {
+            return Err(ProtocolError::InvalidMessage);
+        }
+        let mut plain = Zeroizing::new(vec![VERSION, 18]);
+        plain.extend(id);
         self.encrypt(&plain)
     }
     pub fn send_typing(&mut self, active: bool) -> Result<Vec<u8>> {
@@ -1073,6 +1110,31 @@ impl Session {
                 }
                 Ok(Event::ActionAck { id })
             }
+            17 => {
+                self.ensure_ready()?;
+                if payload.len() < 17
+                    || payload.len() > crate::groups::MAX_PACKET + 16
+                    || self.received.len() >= MAX_SESSION_MESSAGES
+                {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let id = parse_id(&payload[..16])?;
+                if self.sent.contains(&id) || !self.received.insert(id) {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                let packet = crate::groups::Packet::decode(&payload[16..])
+                    .map_err(|_| ProtocolError::InvalidMessage)?;
+                self.pending_group_ack.insert(id);
+                Ok(Event::Group { id, packet })
+            }
+            18 => {
+                self.ensure_ready()?;
+                let id = parse_id(payload)?;
+                if !self.awaiting_group_ack.remove(&id) {
+                    return Err(ProtocolError::InvalidMessage);
+                }
+                Ok(Event::GroupAck { id })
+            }
             16 => {
                 self.ensure_ready()?;
                 if payload.len() != 5 || payload[4] > 1 {
@@ -1109,6 +1171,8 @@ impl Session {
         self.pending_ack.clear();
         self.awaiting_ack.clear();
         self.awaiting_action_ack.clear();
+        self.awaiting_group_ack.clear();
+        self.pending_group_ack.clear();
         self.pending_action_ack.clear();
         self.incoming_file = None;
         self.outgoing_file = None;
@@ -1383,6 +1447,39 @@ mod tests {
         a.receive(&confirm).unwrap();
         assert!(a.is_ready() && b.is_ready());
         (a, b)
+    }
+
+    #[test]
+    fn group_frames_require_mutual_trust_authenticate_receipts_and_abort_on_tampering() {
+        let packet = crate::groups::Packet::Text {
+            group: "a".repeat(32),
+            revision: 1,
+            message: "b".repeat(32),
+            text: "Gruppe 🦀".into(),
+        };
+        let (mut a, mut b) = pair();
+        assert!(a.send_group([41; 16], &packet).is_err());
+        ready(&mut a, &mut b);
+        let frame = a.send_group([41; 16], &packet).unwrap();
+        assert!(matches!(b.receive(&frame).unwrap(),Event::Group{id,..} if id==[41;16]));
+        assert!(
+            matches!(a.receive(&b.acknowledge_group([41;16]).unwrap()).unwrap(),Event::GroupAck{id} if id==[41;16])
+        );
+        assert!(b.acknowledge_group([41; 16]).is_err());
+        assert!(a.send_group([41; 16], &packet).is_err());
+        let (mut c, mut d) = ready_pair();
+        let mut bad = c.send_group([42; 16], &packet).unwrap();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(d.receive(&bad).is_err());
+        assert!(d.is_closed());
+        let (mut fresh, mut receiver) = ready_pair();
+        assert!(receiver.receive(&frame).is_err());
+        fresh.abort();
+        assert!(fresh.send_group([43; 16], &packet).is_err());
+        let (mut e, mut f) = pair();
+        introductions(&mut e, &mut f);
+        let early = e.encrypt(&[VERSION, 17, 0, 0]).unwrap();
+        assert!(matches!(f.receive(&early), Err(ProtocolError::NotReady)));
     }
 
     #[test]

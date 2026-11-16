@@ -14,3 +14,5 @@ pub mod conversation;
 pub mod hello;
 pub mod media;
 pub mod transfer_metrics;
+
+pub mod groups;

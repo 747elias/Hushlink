@@ -18,7 +18,7 @@ jobs:
   checks:
     uses: ./.github/workflows/checks.yml
     with:
-      sign: ${{ github.ref_name != 'v1.0.0' }}
+      sign: ${{ github.ref_name != 'v1.0.0' && github.ref_name != 'v1.1.0' }}
     secrets:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
   package:
@@ -48,7 +48,7 @@ jobs:
           if (-not (Test-Path "docs/RELEASE-$env:GITHUB_REF_NAME.md")) { throw 'Release notes are missing' }
           New-Item -ItemType Directory -Force release-assets | Out-Null
           Copy-Item build-artifact/release-assets/* release-assets/
-          if ($env:GITHUB_REF_NAME -ne 'v1.0.0') {
+          if ($env:GITHUB_REF_NAME -notin @('v1.0.0', 'v1.1.0')) {
             ./scripts/verify-signature.ps1 -Path "release-assets/Hushlink-v$version-windows-x64.exe" -CertificateSha256 "$env:HUSHLINK_PUBLISHER_SHA256"
             ./scripts/verify-signature.ps1 -Path "release-assets/Hushlink-v$version-windows-x64-setup.exe" -CertificateSha256 "$env:HUSHLINK_PUBLISHER_SHA256"
           }
@@ -92,7 +92,7 @@ jobs:
             exit 1
           fi
           test -f "docs/RELEASE-${GITHUB_REF_NAME}.md"
-          if [[ "$GITHUB_REF_NAME" == "v1.0.0" ]]; then
+          if [[ "$GITHUB_REF_NAME" == "v1.0.0" || "$GITHUB_REF_NAME" == "v1.1.0" ]]; then
             release_channel=(--latest)
           else
             release_channel=(--prerelease)
@@ -117,7 +117,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           channel=()
-          if [[ "$GITHUB_REF_NAME" == "v1.0.0" ]]; then channel=(--allow-stable); fi
+          if [[ "$GITHUB_REF_NAME" == "v1.0.0" || "$GITHUB_REF_NAME" == "v1.1.0" ]]; then channel=(--allow-stable); fi
           python3 scripts/verify-release.py --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --directory work/published-verification "${channel[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -128,7 +128,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   verify-published-signatures:
-    if: github.ref_name != 'v1.0.0'
+    if: github.ref_name != 'v1.0.0' && github.ref_name != 'v1.1.0'
     name: Verify Authenticode on actual public downloads
     needs: publish
     runs-on: windows-2025

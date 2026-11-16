@@ -35,13 +35,16 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 mod windows_lock;
 
 mod backups;
+mod groups;
 mod rich;
+pub use groups::GroupCommand;
 
 const COMMAND_CAPACITY: usize = 64;
 const FRAME_DEADLINE: Duration = Duration::from_secs(30);
 const MAX_NETWORK_FRAME: usize = protocol::MAX_FRAME;
 
 pub enum Command {
+    Group(GroupCommand),
     SetBackups {
         folder: String,
         retention: u8,
@@ -271,6 +274,11 @@ pub struct PartialView {
 }
 #[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct View {
+    pub groups: Vec<crate::groups::Group>,
+    pub group_messages: Vec<crate::groups::Message>,
+    pub group_identity: String,
+    pub group_pending: usize,
+    pub group_sync: bool,
     pub hello_enabled: bool,
     pub backup_folder: String,
     pub backup_retention: u8,
@@ -660,6 +668,8 @@ struct OutgoingFile {
     activity: Instant,
 }
 enum PeerCommand {
+    Group(protocol::MessageId, crate::groups::Packet),
+    GroupAck(protocol::MessageId),
     Action(protocol::MessageId, crate::conversation::Action),
     ActionAck(protocol::MessageId),
     Typing(bool),
@@ -675,6 +685,11 @@ enum PeerCommand {
     Close,
 }
 enum PeerEvent {
+    Group {
+        id: protocol::MessageId,
+        packet: crate::groups::Packet,
+    },
+    GroupAck(protocol::MessageId),
     Action {
         id: protocol::MessageId,
         action: crate::conversation::Action,
@@ -752,6 +767,7 @@ impl Drop for PeerWorker {
 }
 
 struct Actor {
+    group_state: groups::GroupState,
     backup_checked: Option<Instant>,
     action_attempts: std::collections::HashSet<String>,
     peer_typing_since: Option<Instant>,
@@ -822,6 +838,7 @@ impl Actor {
         view.minimize_to_tray = desktop_preferences.minimize_to_tray;
         view.automatic_updates = desktop_preferences.automatic_updates;
         Self {
+            group_state: Default::default(),
             backup_checked: None,
             action_attempts: Default::default(),
             peer_typing_since: None,
@@ -893,6 +910,11 @@ impl Actor {
             return;
         };
         let profile = vault.profile();
+        self.view.groups = profile.groups.groups.clone();
+        self.view.group_messages = profile.groups.messages.clone();
+        self.view.group_identity = hex::encode(profile.identity_public);
+        self.view.group_pending = profile.groups.outbox.len();
+        self.view.group_sync = self.group_state.sync;
         self.view.hello_enabled = vault.has_hello();
         self.view.profile_exists = true;
         self.view.unlocked = true;
@@ -926,7 +948,12 @@ impl Actor {
         );
         self.hub.notices.set_unread(
             self.generation,
-            profile.contacts.iter().map(|c| c.unread).sum::<u32>(),
+            profile
+                .contacts
+                .iter()
+                .map(|c| c.unread)
+                .sum::<u32>()
+                .saturating_add(profile.groups.groups.iter().map(|g| g.unread).sum::<u32>()),
         );
         self.view.partials = profile
             .partials
@@ -1030,6 +1057,7 @@ impl Actor {
         }
     }
     fn clear(&mut self) {
+        self.group_state = Default::default();
         self.hub.peer_active.store(false, Ordering::Release);
         self.hub.cancel_media();
         self.backup_checked = None;
@@ -1094,6 +1122,7 @@ impl Actor {
             }
             self.enforce_idle_lock();
             self.backup_if_due();
+            self.group_tick();
             if self.view.peer_typing
                 && self
                     .peer_typing_since
@@ -1346,6 +1375,7 @@ impl Actor {
     }
     fn unlocked_command(&mut self, command: &mut Command) -> anyhow::Result<()> {
         match command {
+            Command::Group(command) => self.group_command(command)?,
             Command::SetHello { enabled, password } => {
                 self.emit(Event::Busy(true));
                 let hub = self.hub.clone();
@@ -1467,6 +1497,7 @@ impl Actor {
                 self.check_bluetooth();
             }
             Command::CancelBluetooth => {
+                self.group_state.sync = false;
                 self.disconnect("Verbindungsvorgang abgebrochen");
                 if let Some(flag) = self.discovery_flag.take() {
                     flag.store(true, Ordering::Release);
@@ -1499,6 +1530,15 @@ impl Actor {
                 anyhow::ensure!(self.save(), "Kontakt konnte nicht gespeichert werden.");
             }
             Command::ForgetContact { id } => {
+                anyhow::ensure!(
+                    !self.vault.as_ref().is_some_and(|v| v
+                        .profile()
+                        .groups
+                        .groups
+                        .iter()
+                        .any(|g| g.active && g.roster.members.contains(id))),
+                    "Zuerst die betroffenen Gruppen verlassen oder schliessen."
+                );
                 anyhow::ensure!(
                     self.peer.is_none() && self.connect_flag.is_none(),
                     "Bitte vor dem Entfernen die Verbindung trennen."
@@ -1571,13 +1611,17 @@ impl Actor {
             }
             Command::StartListening => self.start_listening()?,
             Command::StopListening => {
+                self.group_state.sync = false;
                 if let Some(flag) = self.listener_flag.take() {
                     flag.store(true, Ordering::Release);
                 }
                 self.view.listening = false;
                 self.view.status = "Verbindungsangebot beendet".into();
             }
-            Command::Connect { address } => self.connect(address.clone())?,
+            Command::Connect { address } => {
+                self.group_state.sync = false;
+                self.connect(address.clone())?;
+            }
             Command::Respond { accept } => {
                 let pending = self.pending.take();
                 self.pending_since = None;
@@ -1692,7 +1736,10 @@ impl Actor {
                 self.view.vault_path = self.path.display().to_string();
                 self.view.status = "Verschlüsselter Tresor wurde verschoben".into();
             }
-            Command::Disconnect => self.disconnect("Verbindung getrennt"),
+            Command::Disconnect => {
+                self.group_state.sync = false;
+                self.disconnect("Verbindung getrennt");
+            }
             Command::DeleteHistory { contact_id } => {
                 anyhow::ensure!(
                     !self
@@ -2262,6 +2309,9 @@ impl Actor {
         Ok(())
     }
     fn disconnect(&mut self, status: &str) {
+        self.group_state.attempts.clear();
+        self.group_state.inflight = None;
+        self.group_state.activity = None;
         self.hub.peer_active.store(false, Ordering::Release);
         self.hub.cancel_media();
         self.action_attempts.clear();
@@ -2431,6 +2481,14 @@ impl Actor {
                     return;
                 }
                 let lease = self.hub.socket(self.generation, stream.cancel_handle());
+                if self.group_auto_accept(&device.address) {
+                    if let Err(e) =
+                        self.start_peer(stream, device, protocol::Role::Responder, lease)
+                    {
+                        self.error(e);
+                    }
+                    return;
+                }
                 self.view.pending_incoming = Some(DeviceView {
                     name: device.name.clone(),
                     address: device.address.clone(),
@@ -2478,6 +2536,8 @@ impl Actor {
     }
     fn peer_event(&mut self, event: PeerEvent) {
         match event {
+            PeerEvent::Group { id, packet } => self.receive_group(id, &packet),
+            PeerEvent::GroupAck(id) => self.group_ack(id),
             PeerEvent::Action { id, action } => self.receive_action(id, &action),
             PeerEvent::ActionSent(id) => {
                 if self.vault.as_ref().is_some_and(|v| {
@@ -2806,6 +2866,7 @@ impl Actor {
             }
             PeerEvent::FileCancelled(id) => self.cancel_file(id),
             PeerEvent::KeyChanged => {
+                self.group_state.sync = false;
                 let device = self.peer.as_ref().map(|p| DeviceView {
                     name: p.device.name.clone(),
                     address: p.device.address.clone(),
@@ -3354,6 +3415,8 @@ fn peer_loop(
                             protocol::write_frame(&mut stream, &frame)?;
                             emit(PeerEvent::Sent(message_id))?;
                         }
+                        PeerCommand::Group(id,packet)=>{anyhow::ensure!(ready_announced && session.is_ready(),"Kontakt noch nicht bestätigt.");protocol::write_frame(&mut stream,&session.send_group(id,&packet)?)?;}
+                        PeerCommand::GroupAck(id)=>{protocol::write_frame(&mut stream,&session.acknowledge_group(id)?)?;}
                         PeerCommand::Action(message_id,action)=>{
                             anyhow::ensure!(ready_announced && session.is_ready(),"Kontakt noch nicht bestätigt.");
                             protocol::write_frame(&mut stream,&session.send_action(message_id,&action)?)?;emit(PeerEvent::ActionSent(message_id))?;
@@ -3420,6 +3483,8 @@ fn peer_loop(
                         }
                         protocol::Event::TrustConfirmed => {}
                         protocol::Event::Chat { id, text } => { emit(PeerEvent::Chat { id, text: Zeroizing::new(text) })?; }
+                        protocol::Event::Group{id,packet}=>{emit(PeerEvent::Group{id,packet})?;}
+                        protocol::Event::GroupAck{id}=>{emit(PeerEvent::GroupAck(id))?;}
                         protocol::Event::Action{id,action}=>{emit(PeerEvent::Action{id,action})?;}
                         protocol::Event::ActionAck{id}=>{emit(PeerEvent::ActionAck(id))?;}
                         protocol::Event::Typing{active}=>{emit(PeerEvent::Typing(active))?;}

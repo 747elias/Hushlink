@@ -28,7 +28,7 @@ pub const MAX_CONTACTS: usize = 500;
 pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 80 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 1_000;
-const PROFILE_SCHEMA_VERSION: u16 = 4;
+const PROFILE_SCHEMA_VERSION: u16 = 5;
 
 fn legacy_schema_version() -> u16 {
     1
@@ -52,6 +52,8 @@ pub struct Profile {
     pub pending_actions: Vec<crate::conversation::PendingAction>,
     #[serde(default)]
     pub action_receipts: Vec<crate::conversation::Receipt>,
+    #[serde(default)]
+    pub groups: crate::groups::Store,
     pub settings: Settings,
 }
 
@@ -72,6 +74,7 @@ impl Profile {
             partials: Vec::new(),
             pending_actions: Vec::new(),
             action_receipts: Vec::new(),
+            groups: Default::default(),
             settings: Settings::default(),
         }
     }
@@ -673,6 +676,10 @@ impl Vault {
 }
 
 fn validate_profile(profile: &Profile) -> Result<()> {
+    profile
+        .groups
+        .validate(&hex::encode(profile.identity_public))
+        .map_err(|_| VaultError::InvalidProfile)?;
     fn valid_name(name: &str) -> bool {
         !name.trim().is_empty() && name.len() <= 80 && !name.chars().any(char::is_control)
     }
