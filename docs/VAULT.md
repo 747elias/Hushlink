@@ -149,7 +149,7 @@ verschlüsselte Kopie bei geschlossener App sichern.
 Gruppen teilen den Tresorschlüssel und die atomaren Schreibregeln des Profils,
 keine Netzwerk-Sitzungsschlüssel. Ausgehende Zustellungen überleben Neustarts,
 Sperren stoppt aber deren Verarbeitung. Empfangsbestätigungen erst nach sicherem
-Speichern, bei Fehler Rollback ohne ACK. Inhaltsfreie Empfangsdigests bleiben
+Speichern, bei Fehler Rollback ohne ACK. Inhaltsfreie Empfangsdigests samt Nachrichten-IDs bleiben
 nach Löschen eines Gruppenverlaufs/einer lokalen Gruppe als Schutz gegen späte
 Wiederholungen erhalten. Das verhindert kein Wiederherstellen einer älteren
 gültigen Tresorkopie durch einen lokalen Angreifer. Grenzen: 32 Gruppen, acht

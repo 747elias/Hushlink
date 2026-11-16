@@ -304,8 +304,8 @@ do not relay it. There is no shared group cipher/key and no anonymous routing.
 Sender recipient lists/delivery IDs are local, independent per recipient. Control
 and text receipts are sent only after an atomic encrypted vault save. Stable
 sender-scoped delivery IDs plus SHA-256 of the entire encoded packet make retries
-idempotent across **fresh** sessions. Content-free receipt digests survive local
-history deletion; a contradictory retry fails. Removing contacts does not remove
+idempotent across **fresh** sessions. Content-free receipt digests and text IDs survive local
+history deletion; a contradictory retry or reused text ID under a new delivery ID fails. Removing contacts does not remove
 group digests. No transport keys/nonces are persisted.
 
 The single RFCOMM actor explicitly opts into sequential synchronization with

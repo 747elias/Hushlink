@@ -152,6 +152,8 @@ pub struct Receipt {
     pub id: String,
     pub sender: String,
     pub digest: [u8; 32],
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 #[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(deny_unknown_fields)]
@@ -268,6 +270,7 @@ impl Store {
             ensure!(
                 id(&r.id, 32)
                     && id(&r.sender, 64)
+                    && r.message_id.as_ref().is_none_or(|m| id(m, 32))
                     && !self.receipts[..i]
                         .iter()
                         .any(|p| p.id == r.id && p.sender == r.sender),
@@ -584,6 +587,15 @@ impl Store {
             ensure!(r.digest == digest, "Widersprüchliche Wiederholung.");
             return Ok(false);
         }
+        if let Packet::Text { message, .. } = packet {
+            ensure!(
+                !self
+                    .receipts
+                    .iter()
+                    .any(|r| r.sender == peer && r.message_id.as_ref() == Some(message)),
+                "Wiederverwendete Gruppennachrichten-ID."
+            );
+        }
         ensure!(
             self.receipts.len() < MAX_RECEIPTS,
             "Gruppenbestätigungen voll."
@@ -717,6 +729,10 @@ impl Store {
             id: delivery.into(),
             sender: peer.into(),
             digest,
+            message_id: match packet {
+                Packet::Text { message, .. } => Some(message.clone()),
+                _ => None,
+            },
         });
         Ok(true)
     }

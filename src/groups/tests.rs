@@ -158,6 +158,11 @@ fn tampered_retries_history_deletion_and_parser_limits() -> Result<()> {
     y.messages.clear();
     assert!(!y.receive(&b, &a, &packet.id, &packet.packet, 1)?);
     assert!(y.messages.is_empty());
+    assert!(
+        y.receive(&b, &a, &"8".repeat(32), &packet.packet, 1)
+            .is_err(),
+        "A new delivery ID cannot resurrect a deleted message ID"
+    );
     let other = Packet::Text {
         group: g,
         revision: 1,

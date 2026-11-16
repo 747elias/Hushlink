@@ -58,6 +58,7 @@ impl App {
             .find(|g| self.design.selected_group.as_deref() == Some(&g.roster.id))
             .cloned();
         let Some(g) = group else {
+            self.show_error(ui);
             ui.vertical_centered(|ui| {
                 ui.add_space(80.0);
                 ui.heading("Ein Raum für eure Runde.");
@@ -87,8 +88,13 @@ impl App {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(42.0, 42.0), Sense::hover());
                     theme::avatar(ui.painter(), r.center(), 21.0, &g.roster.name, &g.roster.id);
+                    let title_width = (ui.available_width() - 44.0).max(70.0);
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(&g.roster.name).size(21.0));
+                        ui.set_width(title_width);
+                        ui.add(
+                            egui::Label::new(RichText::new(&g.roster.name).size(21.0)).truncate(),
+                        )
+                        .on_hover_text(&g.roster.name);
                         ui.label(
                             RichText::new(format!(
                                 "{} Mitglieder · {} beigetreten · Liste {}",
@@ -169,7 +175,7 @@ impl App {
             });
             ui.label(RichText::new("Enter sendet · Shift+Enter neue Zeile · Offline-Mitglieder bleiben ausstehend").size(10.0).color(MUTED));
         });
-        egui::ScrollArea::vertical().id_salt(("group_history",&g.roster.id)).auto_shrink([false,false]).show(ui,|ui|{
+        egui::ScrollArea::vertical().id_salt(("group_history",&g.roster.id,g.roster.revision,g.active)).stick_to_bottom(g.active).auto_shrink([false,false]).show(ui,|ui|{
             ui.add_space(12.0);self.show_error(ui);
             egui::Frame::new().fill(PANEL).corner_radius(12).inner_margin(14).show(ui,|ui|{
                 ui.horizontal_wrapped(|ui|{for member in &g.roster.members {let name=Zeroizing::new(self.group_name(member));ui.label(RichText::new(format!("{}{} · {}",name.as_str(),if *member==g.roster.owner{" (Besitzer)"}else{""},if g.departed.contains(member){"ausgetreten"}else if g.accepted.contains(member){"beigetreten"}else{"wartet"})).size(12.0).color(if g.accepted.contains(member){MINT}else{MUTED})).on_hover_text(member);}});

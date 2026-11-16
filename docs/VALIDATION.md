@@ -164,3 +164,15 @@ Commit-, Hash-, PE- und ZIP-Gleichheitsnachweise als JSON-Artefakt.
 ## Signierlauf der ausdrücklich unsignierten Ausnahme
 
 Die tagbasierte Signierpipeline stoppt bei dieser ausdrücklich freigegebenen unsignierten Ausnahme an der fehlenden Signierkonfiguration ([Signierlauf](https://github.com/747elias/Hushlink/actions/runs/43709817861)). Das ist kein fehlgeschlagener App-Test. Veröffentlicht wurden die unveränderten Dateien aus dem erfolgreichen CI-Lauf des exakten Release-Commits; die tatsächlichen öffentlichen Downloads wurden separat geprüft.
+
+## v1.1 – Gruppenchats
+
+[Umsetzung und konkrete Prüfungen](PLAN-v1.1.0.md),
+[Release-Prüfstand](RELEASE-v1.1.0.md),
+[Drei-PC-Hardwareablauf](MANUAL-TEST.md#gruppenchats-v110--drei-physische-pcs).
+113 Linux-Tests bestanden, zusätzlich verschlüsselte Drei-Identitäten-Sitzungen
+und Replay-/Persistenz-Regressionsprüfungen. Die echte Linux-GUI wurde mit
+isolierten künstlichen Profilen bedient, einschließlich 720×540, mehrzeiliger
+Einzelsendung, Neustart und Sperre. Windows-Build/Installer und tatsächliche
+öffentliche Release-Assets werden von der exakten Commit-/Tag-Pipeline geprüft.
+Physische Bluetooth-Gruppentests stehen ausdrücklich aus.
