@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 – direkte Gruppenchats
+
+- Gruppen mit bis zu acht Personen, verschlüsselter Offline-Warteschlange, Unicode-Text und dauerhaftem Empfangsstatus je Mitglied.
+- Explizite Einladungen/Beitritte, unabhängige paarweise Kontaktprüfung, vom Besitzer versionierte Listen, Austritt, Entfernung, erneute Einladung und Schliessen.
+- Sichtbar aktivierte direkte Synchronisierung über nacheinander aufgebaute RFCOMM-/Noise-Verbindungen; kein Relay oder Internet-Fallback. Sperren stoppt die Synchronisierung.
+- Gruppenliste, Mitgliederverwaltung, lokale Verlaufsverwaltung und inhaltsfreie Benachrichtigungen. Dateien/Antworten/Reaktionen weiterhin im 1:1-Chat.
+- Protokoll 5 verlangt v1.1 auf allen Geräten; Tresorschema 5 liest ältere Profile. Vorher verschlüsselte Sicherung behalten.
+- Unsignierter Release mit unveränderter Updater-Herausgeberprüfung. Reale Drei-PC-Bluetooth-Tests stehen aus; automatische Prüfungen und Downloads siehe [Release-Hinweise](docs/RELEASE-v1.1.0.md).
+
 ## 1.0.0 – geführter Erststart und freie Passwortwahl
 
 - Geführter Erststart mit Willkommen, Profil/Speicherort und freier Passwortwahl.

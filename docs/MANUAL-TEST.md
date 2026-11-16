@@ -153,3 +153,38 @@ Umlaute/Zeilenumbrüche, lange Namen, Anhänge/Antworten/Reaktionen/Pins, Suche,
 kleines Fenster, Einstellungen und Strg+L ab. Windows-DPI-/Emoji-/Zeitzonen-
 Abnahme und reale Zwei-PC-Zustände bleiben manuell erforderlich. Der automatische
 Windows-Start-/Installer-Test ist kein Ersatz dafür.
+
+## Gruppenchats v1.1.0 – drei physische PCs
+
+**Noch nicht durchgeführt.** Drei Windows-11-PCs A/B/C mit Classic/RFCOMM,
+identischem v1.1-Commit, künstlichen Profilen und dokumentierten Treibern verwenden.
+
+1. Ohne Internet starten. A↔B, A↔C und B↔C jeweils paaren/verbinden, vollständige
+   Codes unabhängig vergleichen und beidseitig bestätigen. Alte v1.0-Gegenstelle
+   muss den Protokollwechsel verständlich abbrechen. Schlüsselwechsel blockieren.
+2. A erstellt eine Gruppe mit B/C. Auf allen PCs Sync einschalten. Auf B/C
+   Einladung prüfen; vor Annahme dürfen keine Gruppentexte freigegeben werden.
+   In separatem Test C als unbekannten Kontakt auf B belassen: Beitritt blockiert.
+3. B/C nehmen an. Von allen drei PCs Umlaute, Emoji und mehrzeilige Texte senden,
+   Enter/Shift+Enter prüfen. Pro Empfänger Speicherbestätigung; keine Doppeltexte.
+   Kollidierende Verbindungsversuche müssen mit Wiederholung vorankommen.
+4. C ausschalten; A sendet. B bestätigt, C bleibt ausstehend. A neu starten und
+   entsperren: Text/Status bleibt, Sync bleibt pausiert. Sync aktivieren, C starten:
+   C erhält genau eine Kopie, Bestätigung auf A zählt hoch. Verlorenen ACK durch
+   Abbruch und frische Verbindung prüfen. Dateien im 1:1-Chat regressionsprüfen.
+5. A entfernt das offline C, ändert danach erneut den Namen. B muss Liste erneut
+   annehmen, alte Texte dürfen nicht in neue Revision übernommen werden.
+   C erneut erreichbar: die ausstehende Entfernung muss trotzdem ankommen.
+   C erneut einladen: explizite neue Zustimmung nötig; alte Revision abweisen.
+6. B tritt aus. Erst nach Zustellung verschwindet B als Empfänger. Besitzer
+   schliesst, lokale Verläufe bleiben. Lokalen Verlauf löschen, nach alter
+   Wiederholung kein Wiedererscheinen. Keine physische SSD-Löschzusage.
+7. Während Sync manuell, durch Inaktivität und Win+L sperren: Sitzungen/Arbeiter
+   enden, sichtbare Inhalte verschwinden. Entsperren startet Sync nicht heimlich.
+   Inhaltsfreie Hinweise/Tray-Zähler im Hintergrund und bei Sperren prüfen.
+8. Gruppenfenster/Editor bei 720×540 und 100/125/150/200 % DPI prüfen. Lange Namen,
+   unbekannte Identitäten, volle Warteschlange, Speicherfehler und deaktivierten
+   Adapter verständlich darstellen. Keine simulierten Live-Verbindungen verwenden.
+
+Ergebnisse mit Commit, Windows-/Adapterversion, Zeit und Screenshots protokollieren.
+Automatische In-Memory-, Actor- und UI-Tests ersetzen diesen Funknachweis nicht.

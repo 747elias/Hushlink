@@ -1,18 +1,18 @@
 # Hushlink
 
-**Aktuelle Version: [Hushlink v1.0.0](https://github.com/747elias/Hushlink/releases/tag/v1.0.0)**
+**Aktuelle Version: [Hushlink v1.1.0](https://github.com/747elias/Hushlink/releases/tag/v1.1.0)**
 
-[Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v1.0.0/SHA256SUMS.txt)
+[Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v1.1.0/Hushlink-v1.1.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v1.1.0/Hushlink-v1.1.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v1.1.0/Hushlink-v1.1.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v1.1.0/SHA256SUMS.txt)
 
-**Nicht signiert.** Windows SmartScreen kann warnen. Diese Vorabversion wurde ausdrücklich als unsigniert zur Veröffentlichung freigegeben.
+**Nicht signiert.** Windows SmartScreen kann warnen. Diese Version wurde ausdrücklich als unsigniert zur Veröffentlichung freigegeben.
 
-Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversand für zwei Windows-11-PCs in Bluetooth-Reichweite. Nachrichten und Dateien benötigen weder Internet noch Konto oder zentralen Server. Nur die abschaltbare Update-Funktion nutzt Internet. Keine Telemetrie. Die deutsche Oberfläche und die App-Logik sind in Rust geschrieben.
+Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1- und Gruppenchat mit Dateiversand für Windows-11-PCs in Bluetooth-Reichweite. Nachrichten und Dateien benötigen weder Internet noch Konto oder zentralen Server. Nur die abschaltbare Update-Funktion nutzt Internet. Keine Telemetrie. Die deutsche Oberfläche und die App-Logik sind in Rust geschrieben.
 
 **Prüfstatus:** Die automatischen Prüfungen und Windows-Builds stehen im jeweiligen [Actions-Lauf](https://github.com/747elias/Hushlink/actions). Ein erfolgreicher Build ist kein Bluetooth-Hardwaretest. Der konkrete Zwei-PC-Testplan ist [hier](docs/MANUAL-TEST.md) beschrieben. Es besteht keine externe Sicherheitsprüfung.
 
-## Funktionsumfang v1.0.0
+## Funktionsumfang v1.1.0
 
-Auf `main` sind zusätzlich Antworten/Zitate,
+Neben Gruppentexten für bis zu acht Personen sind Antworten/Zitate im 1:1-Chat,
 Emoji-Reaktionen, gekennzeichnete Bearbeitungen, optionale Schreibanzeige,
 Volltextsuche und gemerkte Nachrichten implementiert. Dazu kommen Kontakt-
 Stummschaltung, Anfragebegrenzung, Übertragungsrate/Restzeit, bestätigter
@@ -20,18 +20,47 @@ Bildversand aus der Zwischenablage, QR-/Kameravergleich, optionaler kryptografis
 gebundener Windows-Hello-Zugang sowie verschlüsselte automatische Sicherungen
 mit Wiederherstellung und Speicherverwaltung.
 
-**v1.0.0 wird auf Wunsch des Maintainers als unsignierter Release veröffentlicht.**
+**v1.1.0 wird auf Wunsch des Maintainers als unsignierter Release veröffentlicht.**
 Die Signaturprüfung im Updater bleibt unverändert; diese Version manuell
 installieren. Die automatische Pipeline prüft den exakten Tag-Commit vor
 Veröffentlichung und lädt danach die öffentlichen Pakete zur Verifikation
 erneut herunter. [Builds und Release-Prüfungen](https://github.com/747elias/Hushlink/actions).
 Reale Bluetooth-/Hello-/Kamera-/Win+L-/DPI-Hardwaretests stehen weiterhin aus.
 
+## Gruppen benutzen
+
+1. Auf allen PCs v1.1 installieren. Vor dem Upgrade den geschlossenen Tresor
+   verschlüsselt sichern; das neue Schema kann von älteren Apps nicht geöffnet werden.
+2. **Alle Mitglieder prüfen einander zuerst paarweise** im 1:1-Chat: vollständigen
+   Sicherheitscode unabhängig vergleichen und beidseitig als Kontakt bestätigen.
+3. In der linken Navigation **Gruppen**, dann **+** wählen, Namen eingeben und
+   bestätigte Kontakte auswählen. Einschliesslich dir höchstens acht Personen.
+4. Auf allen PCs **Gruppen synchronisieren** bewusst aktivieren. Dadurch werden
+   bestätigte Kontakte automatisch angenommen und ausstehende Daten nacheinander
+   direkt zugestellt. Zum normalen 1:1-Chat zuerst pausieren. Die Synchronisierung
+   ist sichtbar, endet beim Sperren und startet nach Entsperren nicht von selbst.
+5. Auf jedem eingeladenen PC die vollständige Mitgliederliste prüfen und
+   **Gruppe beitreten** wählen. Unbekannte Identitäten zuvor als Kontakte prüfen;
+   die Einladung ersetzt den persönlichen Sicherheitsvergleich nicht.
+6. Text senden, auch offline. Jede Nachricht zeigt dauerhafte Bestätigungen pro
+   Empfänger; ausstehend ist keine Zustellung. Alle müssen direkt in Reichweite
+   sein. Kein Mitglied vermittelt Nachrichten für andere, kein Server speichert sie.
+7. Der Besitzer kann Namen/Mitglieder ändern oder die Gruppe schliessen.
+   Neue Listen verlangen erneut Zustimmung. Mitglieder können verlassen/ablehnen.
+   Änderungen und Austritte wirken auf Offline-PCs erst nach Zustellung; gespeicherte
+   Kopien bleiben. Eine neue Einladung mit höherer Listenrevision ist möglich.
+
+Gruppen unterstützen in v1.1 **Text**. Dateien, Antworten und Reaktionen bleiben
+im 1:1-Chat. Der Transport arbeitet mit einer Verbindung gleichzeitig; für kleine
+Runden gedacht, ohne Zusage sofortiger Zustellung. Ein beendeter Zustellversuch
+wird nach Listenwechsel/Austritt als **beendet** angezeigt. Verlauf und Warteschlange
+liegen gemeinsam im gewählten verschlüsselten Tresor. [Drei-PC-Test](docs/MANUAL-TEST.md#gruppenchats-v110--drei-physische-pcs).
+
 ## Messenger-Oberfläche
 
 Das Design orientiert sich an vertrauten Desktop-Messengern: dunkles Petrol,
 Mint-Akzente, eingebettete Inter-Schrift, eigene Icons und kompakte Chatblasen.
-Das neue Design ist im v1.0.0-Download enthalten.
+Das neue Design ist im v1.1.0-Download enthalten.
 
 ![Echte Hushlink-Oberfläche mit ausdrücklich künstlichem, getrenntem Testprofil; keine Bluetooth-Verbindung](docs/images/messenger-test.png)
 
@@ -57,11 +86,11 @@ keinen Hardwaretest. Windows verwendet den nativen MSVC-/Direct3D-Build.
   Tresorpfad, Autostart und Updates stehen unter Allgemein, Passwort/Hello und
   Inaktivität unter Sicherheit, verschlüsselte Sicherungen unter Speicher.
 
-[Designplan und Prüfstand](docs/PLAN-DESIGN.md). v1.0.0 wird als regulärer Release mit dem Badge „Latest“ veröffentlicht.
+[Designplan und Prüfstand](docs/PLAN-DESIGN.md). v1.1.0 wird als regulärer Release mit dem Badge „Latest“ veröffentlicht.
 
 ## Starten und benutzen
 
-1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v1.0.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
+1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v1.1.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
 2. EXE als normaler Benutzer starten. Windows 11 x64, eine funktionierende Direct3D-12-Grafikumgebung (gegebenenfalls Windows-Softwareadapter) und ein Bluetooth-Classic-Adapter mit Microsoft-RFCOMM-Unterstützung werden benötigt. Reine BLE-Adapter reichen nicht. Die EXE verwendet die statische MSVC-Laufzeit; weder Rust noch eine zusätzliche App-Registrierung oder ein MSIX-Paket sind erforderlich. Es gibt keinen TCP- oder WLAN-Ersatztransport.
 3. Einen Anzeigenamen und ein frei gewähltes Passwort (ohne Mindestlänge oder Zeichenvorgaben) festlegen. Das Passwort verschlüsselt tatsächlich den lokalen Tresor. **Es gibt keine Passwortwiederherstellung. Ein vergessenes Passwort bedeutet Datenverlust.**
 4. Bluetooth auf beiden PCs in den Windows-Einstellungen einschalten. Bei Bedarf beide PCs dort koppeln. Zum erstmaligen Finden Windows-Bluetooth-Einstellungen geöffnet halten; Windows steuert die Sichtbarkeit. Hushlink aktiviert selbst keine dauerhafte Auffindbarkeit.
@@ -159,7 +188,7 @@ Unter Linux lassen sich die plattformunabhängigen Protokoll-, Tresor- und Akteu
 - **Falsches Passwort/beschädigter Tresor:** Datei unverändert lassen, Passwort prüfen oder eine eigene gesicherte Kopie wiederherstellen. Keine automatische Neuanlage über eine bestehende Datei. Keine Wiederherstellung durch den Entwickler möglich.
 - **Windows-Sperrüberwachung noch nicht bereit:** Kurz warten und erneut versuchen. Wenn die Meldung bleibt, Windows-Sitzungsdienste und Richtlinien prüfen und die App neu starten. Das Profil wird ohne aktive Sperrüberwachung nicht entsperrt.
 - **Profil bereits geöffnet:** Andere Hushlink-Instanz schliessen. Eine verbleibende leere Sperrdatei ist normal; die Betriebssystem-Dateisperre wird beim Prozessende freigegeben.
-- **Tresor voll:** Alte lokale Verläufe samt Anhängen löschen. Grenzen: 128 MiB verschlüsselter Tresor, insgesamt 80 MiB Anhangsdaten, 1.000 Anhänge, 10.000 Nachrichten, 500 Kontakte, 16 KiB Text pro Nachricht. Sitzungen sind ebenfalls begrenzt; bei einer langen Unterhaltung neu verbinden.
+- **Tresor voll:** Alte lokale Verläufe samt Anhängen löschen. Grenzen: 128 MiB verschlüsselter Tresor, insgesamt 80 MiB Anhangsdaten, 1.000 Anhänge, 10.000 persönliche und 10.000 Gruppennachrichten, 32 Gruppen mit je bis zu acht Mitgliedern, 2.048 ausstehende Gruppenzustellungen, 20.000 Gruppen-Empfangsdigests, 500 Kontakte, 16 KiB Text pro Nachricht. Sitzungen sind ebenfalls begrenzt; bei einer langen Unterhaltung neu verbinden.
 - **Hello/Kamera nicht verfügbar:** Windows-Hello-Einrichtung und Kamerazugriff für Desktop-Apps prüfen. Bei ungeeigneten Treibern/Providern Passwort und vollständigen manuellen Codevergleich verwenden; Hushlink umgeht keine Schutzrichtlinie.
 - **Update nicht möglich:** Internet/GitHub-Erreichbarkeit prüfen oder den neuen Installer manuell aus Releases laden. Updates benötigen keine Zugangsdaten. Bei Fehlern bleibt die bisherige App nutzbar. Für manuelle Installation eine noch laufende Instanz über das Tray beenden. Keine Sicherheitswarnung durch Eingabe eines GitHub-Tokens umgehen.
 
@@ -169,6 +198,7 @@ Unter Linux lassen sich die plattformunabhängigen Protokoll-, Tresor- und Akteu
 - `src/runtime.rs`: Hintergrundakteur, Tresorlebenszyklus, Verbindungen und Nachrichtenstatus.
 - `src/transport/`: natives Windows-Bluetooth-Classic/RFCOMM; kein IP-Fallback.
 - `src/protocol.rs`: Noise-Sitzung, gegenseitige Vertrauensbestätigung und begrenzte Frames.
+- `src/groups.rs`, `src/runtime/groups.rs`, `src/ui/groups.rs`: Gruppenmodell, direkte Zustellung und Oberfläche.
 - `src/vault.rs`: authentifizierte Verschlüsselung, Passwortwechsel und atomare Speicherung.
 - `src/storage_location.rs`: minimaler Startverweis und sichere Tresorverlagerung.
 - `src/desktop/`, `src/updater.rs`: Windows-Tray, Autostart und begrenzte HTTPS-Update-Downloads.
@@ -186,4 +216,4 @@ Passwörter haben keine Längen- oder Zeichenvorgaben, auch leer ist erlaubt.
 Die Wiederholung verhindert Tippfehler, sie ist keine Stärkeregel. Kurze oder
 leere Passwörter schützen entsprechend schwach; ohne Passwort kann jeder mit
 der Datei den Tresor öffnen. Verschlüsselung, Passwortwechsel und Sperren
-bleiben aktiv. Diese Änderungen sind im v1.0.0-Download enthalten.
+bleiben aktiv. Diese Änderungen bleiben im v1.1.0-Download enthalten.

@@ -1,4 +1,4 @@
-# Tresorformat: Hülle 1/2, Profilschema 4
+# Tresorformat: Hülle 1/2, Profilschema 5
 
 Hushlink schreibt Profil, private Identität, Kontakte, Nachrichten und gespeicherte Dateianhänge in **eine verschlüsselte Tresordatei**. Standard ist der lokale benutzerspezifische Windows-App-Datenordner; beim Erststart beziehungsweise im gesperrten Zustand kann eine andere neue oder bestehende Tresordatei gewählt werden. Ein entsperrter Tresor lässt sich über die Einstellungen an einen freien Zielpfad verschieben. Eine portable EXE speichert keinen Tresor neben der EXE. Ein externes Laufwerk muss verfügbar und beschreibbar sein; Sicherungskopien und Laufwerkszugriff bleiben in der Verantwortung der Person am Gerät. Das Passwort wird weder gespeichert noch übertragen. Ein vergessenes Passwort bedeutet ohne eigene Sicherung und bekanntes Passwort den Verlust des Profils, der Identität und der lokalen Verläufe; eine Wiederherstellung setzt eine eigene verschlüsselte Sicherung und deren gültiges Passwort voraus. Optional kann ein eingerichteter Windows-Hello-Zugang auf demselben Benutzerkonto entsperren.
 
@@ -40,11 +40,11 @@ Passwortänderung prüft zunächst das bisherige Passwort an der Schlüsselhüll
 
 Ohne Windows-Hello-Einrichtung bleibt die binäre Hülle Version 1. Der entschlüsselte Inhalt trägt seit Hushlink 0.2 `schema_version: 2`; dazu kommen `attachments` und die optionale `attachment_id` einer Nachricht. Anhänge enthalten ID, Kontakt-ID, Namen, Base64-Daten, SHA-256, Richtung und Zeitstempel. Sie dürfen nur gemeinsam mit einer passenden Nachricht existieren. Unbekannte Felder beziehungsweise zukünftige Schemaversionen werden abgelehnt.
 
-Ein 0.1-Profil ohne Schemaversion, Anhänge und neue Desktop-Einstellungen wird als Schema 1 gelesen. Identität, Passwort, Kontakte und Verlauf bleiben erhalten. Bei der nächsten Speicherung schreibt Hushlink Schema 4; ältere App-Versionen können diesen Inhalt nicht lesen. Vor einem Versionswechsel ist eine eigene verschlüsselte Sicherung sinnvoll. Die Desktop-Einstellungen erhalten bei alten Profilen Standardwerte; vorhandene Einstellungen im Bootstrap haben beim Start Vorrang, damit ein Update-Opt-out beim Entsperren erhalten bleibt.
+Ein 0.1-Profil ohne Schemaversion, Anhänge und neue Desktop-Einstellungen wird als Schema 1 gelesen. Identität, Passwort, Kontakte und Verlauf bleiben erhalten. Bei der nächsten Speicherung schreibt Hushlink Schema 5; ältere App-Versionen können diesen Inhalt nicht lesen. Vor einem Versionswechsel ist eine eigene verschlüsselte Sicherung sinnvoll. Die Desktop-Einstellungen erhalten bei alten Profilen Standardwerte; vorhandene Einstellungen im Bootstrap haben beim Start Vorrang, damit ein Update-Opt-out beim Entsperren erhalten bleibt.
 
 Seit Hushlink 0.3 schreibt der Inhalt `schema_version: 3`. Neue Kontaktfelder `alias`, `favorite` und `unread` haben sichere Standardwerte; `settings.notifications` aktiviert ausschließlich inhaltsfreie Hinweise. `partials` enthält Transfer-ID, Kontakt-ID, Dateiname, erwartete Gesamtgröße, vollständigen SHA-256 und Base64-kodierte vorhandene Bytes. Alle Felder befinden sich innerhalb derselben Inhaltsverschlüsselung. Teilstände dürfen nur zu einer passenden eingehenden ausstehenden/fehlgeschlagenen Nachricht und einem bestehenden Kontakt gehören; IDs sind zwischen vollständigen und unvollständigen Anhängen eindeutig. Beide Arten teilen sich die Grenzen von 1.000 Einträgen und 80 MiB gespeicherten Dateidaten. Teilstände sind nicht exportierbar. Die vollständige Datei wird erst nach Größen-/Digestprüfung atomar anstelle des Teilstands gespeichert. Ein bestätigter vorhandener Anhang wird bei einer verlorenen Empfangsbestätigung nicht dupliziert.
 
-Schema 1, 2 und 3 bleiben lesbar. Beim nächsten Speichern beziehungsweise Passwortwechsel wird auf Schema 4 aktualisiert. Die ältere App wird nicht zum Öffnen der migrierten Kopie verwendet; eine vor dem Update bei geschlossener App erstellte Sicherung bleibt der Rückweg. Ein neuer Alias ändert niemals den bestätigten Identitätsschlüssel. Kontaktentfernung löscht dessen Nachrichten, Anhänge und Teilstände gemeinsam.
+Schema 1, 2 und 3 bleiben lesbar. Beim nächsten Speichern beziehungsweise Passwortwechsel wird auf Schema 5 aktualisiert. Die ältere App wird nicht zum Öffnen der migrierten Kopie verwendet; eine vor dem Update bei geschlossener App erstellte Sicherung bleibt der Rückweg. Ein neuer Alias ändert niemals den bestätigten Identitätsschlüssel. Kontaktentfernung löscht dessen Nachrichten, Anhänge und Teilstände gemeinsam.
 
 ## Speicherort und Bootstrap
 
@@ -135,3 +135,23 @@ Authentifizierung wird Ciphertext kopiert und der neue Pfad ausgewählt. Bei Feh
 bleiben vorhandener Tresor und Sicherung erhalten; bei unklarer Bootstrap-Speicherung
 bleibt die neue verschlüsselte Kopie zur manuellen Auswahl bestehen. Alte Sicherungen
 behalten alte Inhalte und ihre damaligen Zugangsschlüssel. Keine physische SSD-Löschung.
+
+## Profilschema 5 (v1.1)
+
+`groups` enthält Listen samt Besitzer/Revision und Beitrittszuständen, Texte,
+Empfänger und bestätigte/beendete Zustellungen, wartende Pakete und nach
+Absender/ID getrennte SHA-256-Empfangsdigests. Alles liegt im authentifiziert
+verschlüsselten Inhalt, niemals im Header/Bootstrap. Fehlendes `groups` älterer
+Schemata erhält einen leeren Speicher; beim Speichern wird Schema 5 geschrieben.
+Schema 1–4 bleibt lesbar, ältere Apps lehnen Schema 5 ab. Vor dem Upgrade eine
+verschlüsselte Kopie bei geschlossener App sichern.
+
+Gruppen teilen den Tresorschlüssel und die atomaren Schreibregeln des Profils,
+keine Netzwerk-Sitzungsschlüssel. Ausgehende Zustellungen überleben Neustarts,
+Sperren stoppt aber deren Verarbeitung. Empfangsbestätigungen erst nach sicherem
+Speichern, bei Fehler Rollback ohne ACK. Inhaltsfreie Empfangsdigests bleiben
+nach Löschen eines Gruppenverlaufs/einer lokalen Gruppe als Schutz gegen späte
+Wiederholungen erhalten. Das verhindert kein Wiederherstellen einer älteren
+gültigen Tresorkopie durch einen lokalen Angreifer. Grenzen: 32 Gruppen, acht
+Mitglieder, 2048 wartende Zustellungen, 20000 Digests, 10000 Gruppentexte, insgesamt
+weiterhin 128 MiB Tresordatei. Keine automatische Löschung alter Sicherheitsdigests.

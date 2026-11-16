@@ -97,3 +97,27 @@ altes gültiges Backup.
 Die Signierpipeline ist vorbereitet, aber mangels legitimem Zertifikat/verifiziertem
 Dienst noch nicht praktisch signiert. Windows-Code und synthetische Negativtests
 sind kein Nachweis einer autorisierten Herausgebersignatur. [Externer Schritt](docs/SIGNING.md).
+
+## Gruppenchats ab v1.1
+
+Gruppen verwenden ausschliesslich bestehende paarweise authentifizierte Noise-
+Sitzungen. Jede Person prüft alle Mitglieder unabhängig als Kontakte und stimmt
+jeder neuen Mitgliederliste zu. Eine Einladung ist kein Identitätsnachweis.
+Absender ist immer der tatsächliche Sitzungspartner; es gibt keine Weiterleitung,
+keine Absenderbehauptung und keinen selbst entworfenen Gruppenalgorithmus.
+Der Besitzer verwaltet die versionierte Liste, kann aber andere Mitglieder nicht
+zum Beitritt zwingen oder deren Identität übernehmen. Jede empfangende Person
+kann Inhalte trotzdem kopieren oder ausserhalb von Hushlink weitergeben.
+
+Synchronisierung ist sichtbar und ausdrücklich aktiviert. Sie verbindet bekannte
+Kontakte nacheinander und nimmt deren Verbindungen automatisch an, prüft aber
+weiterhin den gespeicherten Identitätsschlüssel. Änderungen/Entfernungen sind
+asynchron: unerreichbare PCs können mit ihrem alten lokalen Zustand arbeiten,
+bis eine neue Liste/Austritts-/Schliessmitteilung bei ihnen ankommt. Keine Zusage
+sofortiger globaler Sperrung oder einheitlicher gleichzeitiger Mitgliedschaft.
+Alte gespeicherte Inhalte bleiben bei Empfängern und in Sicherungen. Ausstehende
+Texte werden bei Listenwechsel beendet und nicht in die neue Mitgliedschaft
+übernommen. Inhalt und Warteschlange sind im einzigen verschlüsselten Tresor.
+Direkte Verbindungen machen Geräte-/Verkehrsmuster sichtbar; keine Anonymität.
+Forward Secrecy der Verbindung schützt keine lokal gespeicherten Nachrichten bei
+späterem Tresorzugriff. Keine externe Sicherheitsprüfung der Gruppenfunktion.

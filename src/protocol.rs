@@ -1483,6 +1483,122 @@ mod tests {
     }
 
     #[test]
+    fn three_group_identities_exchange_over_fresh_noise_sessions_and_retry_lost_receipts() {
+        use crate::groups::Store;
+        fn sessions(from: usize, to: usize) -> (Session, Session) {
+            let (mut a, mut b) = memory_pair();
+            let first = IdentityKey::from_private(&[51 + from as u8; 32]).unwrap();
+            let second = IdentityKey::from_private(&[51 + to as u8; 32]).unwrap();
+            let worker =
+                std::thread::spawn(move || handshake(&mut b, &second, Role::Responder).unwrap());
+            let mut a = handshake(&mut a, &first, Role::Initiator).unwrap();
+            let mut b = worker.join().unwrap();
+            let hello = a.hello("NOISE-GROUP-TEST").unwrap();
+            b.receive(&hello).unwrap();
+            let hello = b.hello("NOISE-GROUP-TEST").unwrap();
+            a.receive(&hello).unwrap();
+            assert_eq!(a.check_contact(Some(b.local_key)).unwrap(), Trust::Known);
+            assert_eq!(b.check_contact(Some(a.local_key)).unwrap(), Trust::Known);
+            let confirm = a.confirm().unwrap();
+            b.receive(&confirm).unwrap();
+            let confirm = b.confirm().unwrap();
+            a.receive(&confirm).unwrap();
+            (a, b)
+        }
+        fn deliver(
+            stores: &mut [Store; 3],
+            ids: &[String; 3],
+            from: usize,
+            to: usize,
+            lose_ack: bool,
+        ) -> usize {
+            let queued: Vec<_> = stores[from]
+                .outbox
+                .iter()
+                .filter(|d| d.recipient == ids[to] && stores[from].eligible(d))
+                .cloned()
+                .collect();
+            if queued.is_empty() {
+                return 0;
+            }
+            let (mut a, mut b) = sessions(from, to);
+            for d in &queued {
+                let id: MessageId = hex::decode(&d.id).unwrap().try_into().unwrap();
+                let frame = a.send_group(id, &d.packet).unwrap();
+                let Event::Group { id, packet } = b.receive(&frame).unwrap() else {
+                    panic!("missing group")
+                };
+                assert_eq!(hex::encode(b.remote_key), ids[from]);
+                stores[to]
+                    .receive(&ids[to], &ids[from], &hex::encode(id), &packet, 200)
+                    .unwrap();
+                if !lose_ack {
+                    let ack = b.acknowledge_group(id).unwrap();
+                    assert!(matches!(a.receive(&ack).unwrap(),Event::GroupAck{id:got} if got==id));
+                    stores[from].acknowledge(&ids[to], &d.id).unwrap();
+                }
+            }
+            a.abort();
+            b.abort();
+            queued.len()
+        }
+        let ids = std::array::from_fn(|n| {
+            hex::encode(
+                IdentityKey::from_private(&[51 + n as u8; 32])
+                    .unwrap()
+                    .public(),
+            )
+        });
+        let mut stores: [Store; 3] = std::array::from_fn(|_| Store::default());
+        let g = stores[0]
+            .create(&ids[0], "NOISE-TEST".into(), ids[1..].to_vec())
+            .unwrap();
+        deliver(&mut stores, &ids, 0, 1, false);
+        deliver(&mut stores, &ids, 0, 2, false);
+        stores[0]
+            .send(
+                &ids[0],
+                &g,
+                "OFFLINE-TEST Grüezi 🦀\nNeue Zeile".into(),
+                100,
+            )
+            .unwrap();
+        assert_eq!(deliver(&mut stores, &ids, 0, 1, false), 0);
+        for i in 1..3 {
+            stores[i].consent(&ids[i], &g, true).unwrap();
+        }
+        for from in 1..3 {
+            for to in 0..3 {
+                if from != to {
+                    deliver(&mut stores, &ids, from, to, false);
+                }
+            }
+        }
+        assert_eq!(deliver(&mut stores, &ids, 0, 1, false), 1);
+        assert_eq!(stores[0].messages[0].delivered, vec![ids[1].clone()]);
+        // Receiver stores, ACK is lost, process state reloads, retry uses a new handshake.
+        assert_eq!(deliver(&mut stores, &ids, 0, 2, true), 1);
+        stores[2] = serde_json::from_slice(&serde_json::to_vec(&stores[2]).unwrap()).unwrap();
+        assert_eq!(deliver(&mut stores, &ids, 0, 2, false), 1);
+        assert_eq!(stores[2].messages.len(), 1);
+        assert_eq!(stores[0].messages[0].delivered.len(), 2);
+        stores[1]
+            .send(&ids[1], &g, "Antwort vom zweiten Mitglied".into(), 300)
+            .unwrap();
+        deliver(&mut stores, &ids, 1, 0, false);
+        deliver(&mut stores, &ids, 1, 2, false);
+        assert_eq!(stores[2].messages[1].sender, ids[1]);
+        for i in 0..3 {
+            stores[i].validate(&ids[i]).unwrap();
+        }
+        assert!(stores.iter().all(|s| s.outbox.is_empty()));
+        assert!(matches!(
+            stores[2].messages[0].text.as_str(),
+            "OFFLINE-TEST Grüezi 🦀\nNeue Zeile"
+        ));
+    }
+
+    #[test]
     fn file_resume_uses_new_noise_session_and_requires_fresh_consent() {
         let (mut a, mut b) = ready_pair();
         let data = b"SYNTHETIC_PROTOCOL_RESUME";

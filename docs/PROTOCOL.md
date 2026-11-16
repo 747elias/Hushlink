@@ -1,15 +1,15 @@
-# Hushlink wire protocol v4
+# Hushlink wire protocol v5
 
 This document describes `src/protocol.rs`; it is not an external security audit.
 Application traffic travels only through Windows Bluetooth Classic RFCOMM. The
-in-memory byte transport exists only in tests. Wire v4 requires Hushlink v0.4 or
+in-memory byte transport exists only in tests. Wire v5 requires Hushlink v1.1 or
 later on **both** devices. It deliberately rejects older wire prefixes rather
 than downgrading or silently omitting file-transfer consent. Vault migration is
 independent of the wire version; existing pinned contact identities are retained.
 
 ## Framing and handshake
 
-Each peer first writes the five bytes `48 55 53 48 04` (`HUSH`, version 4), then
+Each peer first writes the five bytes `48 55 53 48 05` (`HUSH`, version 5), then
 reads the same prefix. Every subsequent handshake or transport message is a
 4-byte unsigned big-endian length followed by exactly that many bytes. Valid
 lengths are 1–32768 bytes, rejected before allocation; the underlying transport
@@ -20,7 +20,7 @@ messages.
 
 The pinned snow implementation uses
 `Noise_XX_25519_ChaChaPoly_SHA256`, prologue
-`Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
+`Hushlink/v5/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256`. The local static X25519
 identity lives in the encrypted profile; ephemeral handshake keys are newly
 generated on every connection. snow's `into_transport_mode` produces distinct
 send/receive cipher states. The application never reads, resets, serializes or
@@ -28,7 +28,7 @@ clones their keys or counters. Disconnect, lock, protocol error and
 reconnection discard the entire session. A reconnect always uses a fresh
 handshake. There is no cryptographic session resumption or transport fallback. Application file bytes may resume inside a completely fresh authenticated session as described below.
 
-The authenticated transport plaintext begins with version byte `04`, one type
+The authenticated transport plaintext begins with version byte `05`, one type
 byte, then the following payload. Integers below are unsigned big-endian.
 
 | Type | Payload | State and validation |
@@ -134,7 +134,7 @@ concatenation:
 
 ```
 "Hushlink identity fingerprint\0v4\0"
-|| "Hushlink/v4/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
+|| "Hushlink/v5/RFCOMM/Noise_XX_25519_ChaChaPoly_SHA256"
 || min(local_static_public, remote_static_public)
 || max(local_static_public, remote_static_public)
 ```
@@ -269,3 +269,61 @@ The camera QR payload is `HUSHLINK:VERIFY:4:` followed by all 64 uppercase hexad
 fingerprint digits without spaces. It binds the same canonical identities and v4
 context as the text display. It is never opened as a URL or treated as an automatic
 connection approval. Both users still confirm independently.
+
+## Direct group fan-out (wire v5)
+
+Encrypted types `11` (hex, decimal 17) Group and `12` (hex, decimal 18) GroupAck
+require mutual session trust. Group contains a random 16-byte delivery ID and
+strict, bounded UTF-8 JSON (at most MAX_FRAME minus 64 bytes). GroupAck contains
+exactly that outstanding 16-byte ID; it cannot acknowledge Chat or another type.
+Session IDs remain unique; repeated/unsolicited ACKs and changed retries abort.
+
+Group JSON has a `kind` discriminator: `Roster {roster}`, `Consent
+{group,revision,accepted}`, `Text {group,revision,message,text}` or `Close
+{group,revision}`. Unknown fields, invalid identifiers, bounds and state changes
+are rejected. Group/message IDs are random 128-bit lowercase hex; member IDs are
+the full pinned 256-bit identity keys. Text is 1..16384 bytes UTF-8 (nonblank,
+no NUL) and must also fit the encoded frame, including JSON escaping. A roster
+contains ID, immutable owner, revision 1..10000, name (1..80 UTF-8 bytes, no
+controls) and 2..8 unique member identities including owner and recipient.
+
+The owner must send lists directly over its authenticated pairwise session.
+A higher revision supersedes missed snapshots, clears other join confirmations
+and requires explicit renewed local consent. Rollbacks/owner substitutions fail.
+Only the owner closes/removes; members broadcast their own join/leave directly.
+Every PC independently verifies **all** roster identities as contacts before
+joining/sending. Invitations confer no trust. Text may leave the outbox only for
+a joined recipient in the current revision. Reception requires both local join
+and authenticated sender membership/consent in that revision. A leave requires
+a newer owner list before rejoining. A higher owner list can explicitly reinvite
+a removed member; it never automatically restores their consent.
+
+No sender field is accepted: the actual Noise peer is always the message author.
+Each sender directly encrypts and delivers its own text to each member; recipients
+do not relay it. There is no shared group cipher/key and no anonymous routing.
+Sender recipient lists/delivery IDs are local, independent per recipient. Control
+and text receipts are sent only after an atomic encrypted vault save. Stable
+sender-scoped delivery IDs plus SHA-256 of the entire encoded packet make retries
+idempotent across **fresh** sessions. Content-free receipt digests survive local
+history deletion; a contradictory retry fails. Removing contacts does not remove
+group digests. No transport keys/nonces are persisted.
+
+The single RFCOMM actor explicitly opts into sequential synchronization with
+known contacts, a 20..35-second retry backoff with jitter and rotating recipients.
+Idle peers yield after eight seconds; a stalled group ACK yields after 30 seconds.
+Active files/pending personal receipts are not interrupted by the group scheduler.
+Collision handling yields according to pinned identity order; trust checks still
+run on the actual handshake key. Only verified contacts are auto-accepted while
+visible sync is enabled. Pause/lock cancels attempts; no automatic discovery or
+hidden synchronization after unlocking. Protocol trust/deadline limits still apply.
+
+Bounds: 32 groups, 2048 pending recipient deliveries, 20000 persistent receipt
+digests, 10000 group texts and the overall 128-MiB vault limit. Full queues stop
+new operations with an error; receipt digests are not silently pruned. List
+changes cancel obsolete pending texts visibly, but keep outstanding removal
+notices for previously removed offline members. A valid crossing in-flight ACK
+still records actual durable receipt. Membership is asynchronous: offline PCs
+learn removals/leave/close only when directly delivered. This is not a consensus
+or instantaneous global revocation protocol; old copies cannot be revoked.
+All-pairs physical reachability and verification are required; group files and
+message editing/reactions are deliberately limited to the existing 1:1 chat.

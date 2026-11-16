@@ -173,7 +173,7 @@ impl App {
             ui.add_space(12.0);self.show_error(ui);
             egui::Frame::new().fill(PANEL).corner_radius(12).inner_margin(14).show(ui,|ui|{
                 ui.horizontal_wrapped(|ui|{for member in &g.roster.members {let name=Zeroizing::new(self.group_name(member));ui.label(RichText::new(format!("{}{} · {}",name.as_str(),if *member==g.roster.owner{" (Besitzer)"}else{""},if g.departed.contains(member){"ausgetreten"}else if g.accepted.contains(member){"beigetreten"}else{"wartet"})).size(12.0).color(if g.accepted.contains(member){MINT}else{MUTED})).on_hover_text(member);}});
-                if !all_known {ui.label("Vor dem Beitritt alle Mitglieder unabhängig als Kontakte prüfen. Unbekannte Identitäten stehen oben vollständig im Tooltip.");if ui.button("Kontakte / Verbindungssuche öffnen").clicked(){self.design.groups_open=false;self.design.connections_open=true;}}
+                if !all_known {ui.label("Vor dem Beitritt alle Mitglieder unabhängig als Kontakte prüfen. Unbekannte Identitäten stehen oben vollständig im Tooltip.");if ui.button("Kontakte / Verbindungssuche öffnen").clicked(){if self.view.group_sync {self.group_command(GroupCommand::Sync(false));}self.design.groups_open=false;self.design.connections_open=true;}}
                 if g.closed{ui.label("Diese Gruppe wurde geschlossen. Gespeicherter Verlauf bleibt lokal lesbar.");}
                 else if !g.active && !g.departed.contains(&local){
                     ui.label("Einladung oder geänderte Mitgliederliste. Mit dem Beitritt teilst du Nachrichten direkt mit allen aufgeführten Mitgliedern.");

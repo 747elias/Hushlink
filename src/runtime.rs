@@ -2468,6 +2468,10 @@ impl Actor {
                 self.view.status = "Verbindungen werden angeboten. Sichtbarkeit bei Bedarf in Windows einschalten.".into();
             }
             BackgroundEvent::Incoming(stream, device, flag) => {
+                if flag.load(Ordering::Acquire) {
+                    stream.cancel_handle().cancel();
+                    return;
+                }
                 if !self.allow_connection_request(&device.address) {
                     stream.cancel_handle().cancel();
                     return;
@@ -2537,10 +2541,10 @@ impl Actor {
                 self.error(error);
             }
             BackgroundEvent::ListenerError(error, flag) => {
-                self.pause_group_sync();
                 if flag.load(Ordering::Acquire) {
                     return;
                 }
+                self.pause_group_sync();
                 self.listener_flag = None;
                 self.view.listening = false;
                 self.view.status = "Dienst konnte nicht angeboten werden".into();

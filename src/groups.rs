@@ -378,7 +378,11 @@ impl Store {
             self.outbox.len() + old.members.len() + roster.members.len() <= MAX_OUTBOX,
             "Gruppenwarteschlange voll."
         );
-        self.cancel_where(|d| d.packet.group() != group);
+        // Keep removal notices for members who missed earlier snapshots.
+        // A later edit must not silently discard their pending revocation.
+        self.cancel_where(|d| {
+            d.packet.group() != group || matches!(d.packet, Packet::Close { .. })
+        });
         for removed in old.members.iter().filter(|m| !roster.members.contains(m)) {
             self.enqueue(
                 removed.clone(),
@@ -592,11 +596,12 @@ impl Store {
                 );
                 if let Some(g) = self.groups.iter_mut().find(|g| g.roster.id == roster.id) {
                     ensure!(
-                        g.roster.owner == peer && !g.closed && roster.revision > g.roster.revision,
+                        g.roster.owner == peer && roster.revision > g.roster.revision,
                         "Unzulässiger Besitzer- oder Versionswechsel."
                     );
                     g.roster = roster.clone();
                     g.active = false;
+                    g.closed = false;
                     g.accepted = vec![peer.into()];
                     g.departed.clear();
                     g.unread = g
@@ -703,6 +708,7 @@ impl Store {
                     );
                     g.active = false;
                     g.closed = true;
+                    g.roster.revision = *revision;
                     self.cancel_where(|d| d.packet.group() != *group);
                 }
             }

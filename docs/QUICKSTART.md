@@ -1,6 +1,6 @@
-# Hushlink v1.0.0 – Kurzstart für Windows 11 x64
+# Hushlink v1.1.0 – Kurzstart für Windows 11 x64
 
-1. **Hushlink-v1.0.0-windows-x64-setup.exe** im eigenen Benutzerkonto installieren.
+1. **Hushlink-v1.1.0-windows-x64-setup.exe** im eigenen Benutzerkonto installieren.
    Alternativ die EXE direkt starten oder das ZIP vollständig entpacken.
 2. Der Assistent führt durch Willkommen, Anzeigename/Speicherort und Passwort.
    Keine Längen- oder Zeichenvorgaben, auch leer erlaubt. Ohne Passwort kann
@@ -21,7 +21,7 @@
 
 ## Prüfsummen und Signatur
 
-`Get-FileHash .\Hushlink-v1.0.0-windows-x64-setup.exe -Algorithm SHA256`
+`Get-FileHash .\Hushlink-v1.1.0-windows-x64-setup.exe -Algorithm SHA256`
 mit SHA256SUMS.txt vergleichen. Das gilt entsprechend für EXE und ZIP.
 
 **Nicht signiert:** Windows SmartScreen kann warnen. Prüfsummen ersetzen keine
@@ -35,3 +35,14 @@ Internet. Bluetooth-Metadaten bleiben sichtbar, keine Anonymitätszusage.
 Entsperrte oder kompromittierte Geräte können Daten preisgeben. Keine externe
 Sicherheitsprüfung. Reale Bluetooth-/Kamera-/Hello-/Win+L-/DPI-Tests stehen aus.
 Löschen eines Verlaufs verspricht keine sichere physische SSD-Löschung.
+
+## Gruppen
+
+Alle Mitglieder zuerst untereinander paarweise im 1:1-Chat bestätigen. Unter
+**Gruppen → +** bis zu sieben Kontakte einladen. Auf allen PCs **Gruppen
+synchronisieren** einschalten, Mitgliederliste prüfen und beitreten. Texte
+werden direkt nacheinander an jedes bestätigte beigetretene Mitglied geschickt;
+Offline-Empfänger bleiben ausstehend. Keine Vermittlung über andere PCs.
+Synchronisierung vor 1:1-Chats pausieren. Eine neue Mitgliederliste erneut
+annehmen. Dateien bleiben im 1:1-Chat. Für alle Geräte ist v1.1 erforderlich;
+vor dem Upgrade den geschlossenen verschlüsselten Tresor sichern.

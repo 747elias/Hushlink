@@ -202,3 +202,46 @@ fn offline_members_can_skip_roster_snapshots_but_not_roll_back_or_resurrect_canc
     y.validate(&b)?;
     Ok(())
 }
+
+#[test]
+fn pending_removal_survives_later_edits_and_reinvitation_requires_new_consent() -> Result<()> {
+    let (a, b, c) = (member('a'), member('b'), member('c'));
+    let (mut x, mut y, mut z, g) = trio()?;
+    x.update(&a, &g, "Ohne C".into(), vec![b.clone()])?;
+    x.update(
+        &a,
+        &g,
+        "Weitere Änderung während C offline".into(),
+        vec![b.clone()],
+    )?;
+    assert!(
+        x.outbox
+            .iter()
+            .any(|d| d.recipient == c && matches!(d.packet, Packet::Close { .. }))
+    );
+    deliver(&mut x, &mut z, &a, &c)?;
+    assert!(z.groups[0].closed);
+    x.update(
+        &a,
+        &g,
+        "C erneut einladen".into(),
+        vec![b.clone(), c.clone()],
+    )?;
+    deliver(&mut x, &mut z, &a, &c)?;
+    assert!(!z.groups[0].closed);
+    assert!(!z.groups[0].active);
+    assert!(!z.can_join(&g, &c, std::slice::from_ref(&a)));
+    assert!(z.can_join(&g, &c, &[a.clone(), b.clone()]));
+    let packet = Packet::Text {
+        group: g.clone(),
+        revision: 4,
+        message: "f".repeat(32),
+        text: "Kein automatischer Wiedereintritt".into(),
+    };
+    assert!(z.receive(&c, &a, &"e".repeat(32), &packet, 0).is_err());
+    z.consent(&c, &g, true)?;
+    deliver(&mut x, &mut y, &a, &b)?;
+    x.validate(&a)?;
+    z.validate(&c)?;
+    Ok(())
+}

@@ -47,7 +47,11 @@ impl App {
             if theme::icon_button(
                 ui,
                 Icon::Group,
-                "Gruppen",
+                if self.view.group_sync {
+                    "Gruppen – Synchronisierung aktiv"
+                } else {
+                    "Gruppen"
+                },
                 self.design.groups_open || self.view.group_sync,
             )
             .clicked()
