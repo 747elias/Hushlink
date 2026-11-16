@@ -30,3 +30,5 @@
 - Keep Media Foundation DLLs delay-loaded on MSVC and run the PE optional-camera check. Missing optional camera components must not prevent normal chat startup.
 
 - Maintainer exception authorized on 2026-11-15: v0.4.0 may be published explicitly as an **unsigned prerelease**, using only commit `79723dcee7b5bd329e88a88e383bf4435e87e477` and the exact Windows assets verified by successful CI run `43707154440` and draft verification run `43708723288`. This single-release exception does not weaken updater signature verification or authorize unsigned future releases. Document the lack of signing and hardware tests visibly; verify actual public downloads after publication.
+
+- Maintainer authorization on 2026-11-16: publish the current onboarding/password-choice version as **v1.0.0**, explicitly unsigned, continuing the approved unsigned distribution. Only v1.0.0 additionally skips signing; exact-commit checks, native installer smoke and public download verification remain mandatory. Later versions still require signatures unless separately authorized. The updater publisher verification must remain intact.

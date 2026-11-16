@@ -1,8 +1,8 @@
 # Hushlink
 
-**Aktuelle Vorabversion: [Hushlink v0.4.0](https://github.com/747elias/Hushlink/releases/tag/v0.4.0)**
+**Aktuelle Vorabversion: [Hushlink v1.0.0](https://github.com/747elias/Hushlink/releases/tag/v1.0.0)**
 
-[Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v0.4.0/Hushlink-v0.4.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v0.4.0/SHA256SUMS.txt)
+[Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v1.0.0/SHA256SUMS.txt)
 
 **Nicht signiert.** Windows SmartScreen kann warnen. Diese Vorabversion wurde ausdrücklich als unsigniert zur Veröffentlichung freigegeben.
 
@@ -187,4 +187,4 @@ Passwörter haben keine Längen- oder Zeichenvorgaben, auch leer ist erlaubt.
 Die Wiederholung verhindert Tippfehler, sie ist keine Stärkeregel. Kurze oder
 leere Passwörter schützen entsprechend schwach; ohne Passwort kann jeder mit
 der Datei den Tresor öffnen. Verschlüsselung, Passwortwechsel und Sperren
-bleiben aktiv. Diese Änderungen sind noch nicht im v0.4.0-Download enthalten.
+bleiben aktiv. Diese Änderungen sind im v1.0.0-Download enthalten.

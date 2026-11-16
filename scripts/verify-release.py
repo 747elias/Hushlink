@@ -21,6 +21,7 @@ parser.add_argument("--repo", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--commit", required=True)
 parser.add_argument("--directory", type=Path, required=True)
+parser.add_argument("--allow-stable", action="store_true", help="Accept an explicitly requested regular release")
 args = parser.parse_args()
 if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
     raise SystemExit("Invalid repository name")
@@ -37,8 +38,8 @@ for _ in range(8):
 if obj["type"] != "commit" or obj["sha"] != args.commit:
     raise SystemExit("Release tag does not resolve to the expected checked commit")
 release = gh_json("api", f"repos/{args.repo}/releases/tags/{args.tag}")
-if release["draft"] or not release["prerelease"] or release["tag_name"] != args.tag:
-    raise SystemExit("Expected a published prerelease for the requested tag")
+if release["draft"] or (not release["prerelease"] and not args.allow_stable) or release["tag_name"] != args.tag:
+    raise SystemExit("Expected a published release with the requested tag and channel")
 base = f"Hushlink-{args.tag}-windows-x64"
 expected_names = {base + ".exe", base + "-setup.exe", base + ".zip", "SHA256SUMS.txt"}
 assets = {asset["name"]: asset for asset in release["assets"]}

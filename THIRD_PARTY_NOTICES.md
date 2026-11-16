@@ -4,7 +4,7 @@ Hushlink also embeds the Inter font by The Inter Project Authors under SIL Open 
 
 This file preserves license/copyright texts for the locked Windows normal/build dependency graph, including build-only crates. Test-only dependencies are excluded. For a crate offered under MIT OR Apache-2.0, the MIT option is used where available; additional shipped notices are retained for completeness. Font licenses apply to the embedded font software. Hushlink's own license is in LICENSE.
 
-Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `e7a398fc4f71e86f0071c33d6650ff9d4e804eebaa78c68573cf1bfdb22057e1`.
+Target: `x86_64-pc-windows-msvc`. Cargo.lock SHA-256: `8eb2791ecc8b3e4c798dabe14ce2d324f829fa387db63a5ef87f4877af52989a`.
 
 The lockfile hash normalizes CRLF to LF so Windows checkout line endings do not change dependency identity.
 
