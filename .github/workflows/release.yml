@@ -64,7 +64,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   publish:
-    name: Publish verified prerelease
+    name: Publish verified release
     needs: [checks, package]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -102,7 +102,7 @@ jobs:
             --title "Hushlink $GITHUB_REF_NAME" "${release_channel[@]}" \
             --notes-file "docs/RELEASE-${GITHUB_REF_NAME}.md"
   verify-published:
-    name: Download and verify published prerelease assets
+    name: Download and verify published assets
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 10

@@ -1,6 +1,6 @@
 # Hushlink
 
-**Aktuelle Vorabversion: [Hushlink v1.0.0](https://github.com/747elias/Hushlink/releases/tag/v1.0.0)**
+**Aktuelle Version: [Hushlink v1.0.0](https://github.com/747elias/Hushlink/releases/tag/v1.0.0)**
 
 [Windows-Installer herunterladen](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64-setup.exe) · [EXE ohne Installation](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.exe) · [ZIP](https://github.com/747elias/Hushlink/releases/download/v1.0.0/Hushlink-v1.0.0-windows-x64.zip) · [SHA-256](https://github.com/747elias/Hushlink/releases/download/v1.0.0/SHA256SUMS.txt)
 
@@ -8,9 +8,9 @@
 
 Hushlink ist ein lokaler, Ende-zu-Ende-verschlüsselter 1:1-Chat mit Dateiversand für zwei Windows-11-PCs in Bluetooth-Reichweite. Nachrichten und Dateien benötigen weder Internet noch Konto oder zentralen Server. Nur die abschaltbare Update-Funktion nutzt Internet. Keine Telemetrie. Die deutsche Oberfläche und die App-Logik sind in Rust geschrieben.
 
-**Vorabversion:** Die automatischen Prüfungen und Windows-Builds stehen im jeweiligen [Actions-Lauf](https://github.com/747elias/Hushlink/actions). Ein erfolgreicher Build ist kein Bluetooth-Hardwaretest. Der konkrete Zwei-PC-Testplan ist [hier](docs/MANUAL-TEST.md) beschrieben. Es besteht keine externe Sicherheitsprüfung.
+**Prüfstatus:** Die automatischen Prüfungen und Windows-Builds stehen im jeweiligen [Actions-Lauf](https://github.com/747elias/Hushlink/actions). Ein erfolgreicher Build ist kein Bluetooth-Hardwaretest. Der konkrete Zwei-PC-Testplan ist [hier](docs/MANUAL-TEST.md) beschrieben. Es besteht keine externe Sicherheitsprüfung.
 
-## Entwicklungsstand v0.4.0
+## Funktionsumfang v1.0.0
 
 Auf `main` sind zusätzlich Antworten/Zitate,
 Emoji-Reaktionen, gekennzeichnete Bearbeitungen, optionale Schreibanzeige,
@@ -20,18 +20,18 @@ Bildversand aus der Zwischenablage, QR-/Kameravergleich, optionaler kryptografis
 gebundener Windows-Hello-Zugang sowie verschlüsselte automatische Sicherungen
 mit Wiederherstellung und Speicherverwaltung.
 
-**v0.4.0 ist als unsignierte Vorabversion veröffentlicht.** Die ausdrückliche
-Maintainer-Ausnahme gilt nur für diese Version. Für zukünftige signierte
-Veröffentlichungen fehlt weiterhin ein Zertifikat/verifizierter Dienst; die
-Signaturprüfung im Updater bleibt aktiv. [Signierstatus](docs/SIGNING.md).
-Die tatsächlichen öffentlichen Downloads wurden auf Tag-Commit, SHA-256,
-PE-Format und ZIP-Identität geprüft: [Verifikationsnachweis](docs/releases/v0.4.0-verification.json).
+**v1.0.0 wird auf Wunsch des Maintainers als unsignierter Release veröffentlicht.**
+Die Signaturprüfung im Updater bleibt unverändert; diese Version manuell
+installieren. Die automatische Pipeline prüft den exakten Tag-Commit vor
+Veröffentlichung und lädt danach die öffentlichen Pakete zur Verifikation
+erneut herunter. [Builds und Release-Prüfungen](https://github.com/747elias/Hushlink/actions).
+Reale Bluetooth-/Hello-/Kamera-/Win+L-/DPI-Hardwaretests stehen weiterhin aus.
 
-## Neue Messenger-Oberfläche im Entwicklungsbuild
+## Messenger-Oberfläche
 
 Das Design orientiert sich an vertrauten Desktop-Messengern: dunkles Petrol,
 Mint-Akzente, eingebettete Inter-Schrift, eigene Icons und kompakte Chatblasen.
-Das neue Design ist im veröffentlichten v0.4.0-Download enthalten.
+Das neue Design ist im v1.0.0-Download enthalten.
 
 ![Echte Hushlink-Oberfläche mit ausdrücklich künstlichem, getrenntem Testprofil; keine Bluetooth-Verbindung](docs/images/messenger-test.png)
 
@@ -57,12 +57,11 @@ keinen Hardwaretest. Windows verwendet den nativen MSVC-/Direct3D-Build.
   Tresorpfad, Autostart und Updates stehen unter Allgemein, Passwort/Hello und
   Inaktivität unter Sicherheit, verschlüsselte Sicherungen unter Speicher.
 
-[Designplan und Prüfstand](docs/PLAN-DESIGN.md). GitHub vergibt das Badge
-„Latest“ nur an reguläre Releases; v0.4.0 bleibt bewusst als Vorabversion markiert.
+[Designplan und Prüfstand](docs/PLAN-DESIGN.md). v1.0.0 wird als regulärer Release mit dem Badge „Latest“ veröffentlicht.
 
 ## Starten und benutzen
 
-1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v0.4.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
+1. Unter [Releases](https://github.com/747elias/Hushlink/releases) **Hushlink-v1.0.0-windows-x64-setup.exe** herunterladen, SHA-256 mit `Get-FileHash` gegen `SHA256SUMS.txt` vergleichen und als normaler Benutzer installieren. Installation unter `%LOCALAPPDATA%\Programs\Hushlink`, mit Startmenü und Deinstallation. Alternativ die separate EXE direkt starten oder das ZIP vollständig entpacken. Öffentliche Downloads benötigen kein GitHub-Konto.
 2. EXE als normaler Benutzer starten. Windows 11 x64, eine funktionierende Direct3D-12-Grafikumgebung (gegebenenfalls Windows-Softwareadapter) und ein Bluetooth-Classic-Adapter mit Microsoft-RFCOMM-Unterstützung werden benötigt. Reine BLE-Adapter reichen nicht. Die EXE verwendet die statische MSVC-Laufzeit; weder Rust noch eine zusätzliche App-Registrierung oder ein MSIX-Paket sind erforderlich. Es gibt keinen TCP- oder WLAN-Ersatztransport.
 3. Einen Anzeigenamen und ein frei gewähltes Passwort (ohne Mindestlänge oder Zeichenvorgaben) festlegen. Das Passwort verschlüsselt tatsächlich den lokalen Tresor. **Es gibt keine Passwortwiederherstellung. Ein vergessenes Passwort bedeutet Datenverlust.**
 4. Bluetooth auf beiden PCs in den Windows-Einstellungen einschalten. Bei Bedarf beide PCs dort koppeln. Zum erstmaligen Finden Windows-Bluetooth-Einstellungen geöffnet halten; Windows steuert die Sichtbarkeit. Hushlink aktiviert selbst keine dauerhafte Auffindbarkeit.
@@ -178,7 +177,7 @@ Unter Linux lassen sich die plattformunabhängigen Protokoll-, Tresor- und Akteu
 
 Versionstags führen vor der Veröffentlichung dieselben Prüfungen und einen neuen Windows-Release-Build samt Installer-Abnahme für genau den Tag-Commit aus. Erst erfolgreiche Checks erlauben Veröffentlichung der exakt geprüften Dateien. Release-Artefakte enthalten Setup-EXE, direkt startbare EXE, ZIP und geprüfte SHA-256-Werte. [Installation](installer/README.md) · [Update-Vertrauen und Grenzen](docs/UPDATES.md).
 
-## Neuer Erststart (Entwicklungsstand nach v0.4.0)
+## Geführter Erststart ab v1.0.0
 
 Drei Schritte führen durch Willkommen, Anzeigename/Speicherort und Passwort.
 Ein Profil wird erst mit **Hushlink starten** angelegt. Bestehende Tresore
