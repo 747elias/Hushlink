@@ -125,7 +125,11 @@ impl App {
             .view
             .peer
             .as_ref()
-            .filter(|p| self.view.unlocked && (!p.ready || self.selected.as_deref() == Some(&p.id)))
+            .filter(|p| {
+                self.view.unlocked
+                    && (!p.ready
+                        || (!self.design.groups_open && self.selected.as_deref() == Some(&p.id)))
+            })
             .map(|p| (self.generation, p.id.clone(), p.ready));
         if target != self.media.target {
             self.media.clear();

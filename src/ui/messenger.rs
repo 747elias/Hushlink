@@ -5,6 +5,14 @@ use theme::{INPUT, Icon, SURFACE, TEXT};
 
 #[derive(Default, Zeroize, zeroize::ZeroizeOnDrop)]
 pub(super) struct Presentation {
+    pub groups_open: bool,
+    pub selected_group: Option<String>,
+    pub group_create: bool,
+    pub group_edit: Option<String>,
+    pub group_name: String,
+    pub group_members: Vec<String>,
+    pub group_composer: String,
+    pub group_delete: bool,
     pub contact_query: String,
     pub unread_only: bool,
     pub favorites_only: bool,
@@ -33,6 +41,24 @@ impl App {
             if theme::icon_button(ui, Icon::Chat, "Chats", !self.design.connections_open).clicked()
             {
                 self.design.connections_open = false;
+                self.design.groups_open = false;
+            }
+            ui.add_space(8.0);
+            if theme::icon_button(
+                ui,
+                Icon::Group,
+                "Gruppen",
+                self.design.groups_open || self.view.group_sync,
+            )
+            .clicked()
+            {
+                self.design.groups_open = true;
+                self.media.clear();
+                self.features.clear();
+                self.rich.reply = None;
+                self.rich.edit = None;
+                self.rich.edit_text.zeroize();
+                self.composer.zeroize();
             }
             ui.add_space(8.0);
             if theme::icon_button(
@@ -43,6 +69,7 @@ impl App {
             )
             .clicked()
             {
+                self.design.groups_open = false;
                 self.design.connections_open = !self.design.connections_open;
             }
             ui.add_space(8.0);
@@ -205,6 +232,9 @@ impl App {
             }
         });
         if let Some(id) = selected {
+            if self.selected.as_deref() != Some(&id) {
+                self.composer.zeroize();
+            }
             self.selected = Some(id);
             self.delete_requested = false;
         }
@@ -990,7 +1020,7 @@ impl App {
 if ui.button("Behalten").clicked(){self.delete_requested=false;}});
         });
     }
-    fn connection_safety(&mut self, ui: &mut egui::Ui) -> bool {
+    pub(super) fn connection_safety(&mut self, ui: &mut egui::Ui) -> bool {
         let pending = self.view.pending_incoming.clone();
         let changed = self.view.key_change.clone();
         let peer = self.view.peer.clone().filter(|p| !p.ready);

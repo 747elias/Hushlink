@@ -1497,7 +1497,7 @@ impl Actor {
                 self.check_bluetooth();
             }
             Command::CancelBluetooth => {
-                self.group_state.sync = false;
+                self.pause_group_sync();
                 self.disconnect("Verbindungsvorgang abgebrochen");
                 if let Some(flag) = self.discovery_flag.take() {
                     flag.store(true, Ordering::Release);
@@ -1611,7 +1611,7 @@ impl Actor {
             }
             Command::StartListening => self.start_listening()?,
             Command::StopListening => {
-                self.group_state.sync = false;
+                self.pause_group_sync();
                 if let Some(flag) = self.listener_flag.take() {
                     flag.store(true, Ordering::Release);
                 }
@@ -1619,7 +1619,7 @@ impl Actor {
                 self.view.status = "Verbindungsangebot beendet".into();
             }
             Command::Connect { address } => {
-                self.group_state.sync = false;
+                self.pause_group_sync();
                 self.connect(address.clone())?;
             }
             Command::Respond { accept } => {
@@ -1737,7 +1737,7 @@ impl Actor {
                 self.view.status = "Verschlüsselter Tresor wurde verschoben".into();
             }
             Command::Disconnect => {
-                self.group_state.sync = false;
+                self.pause_group_sync();
                 self.disconnect("Verbindung getrennt");
             }
             Command::DeleteHistory { contact_id } => {
@@ -2472,6 +2472,24 @@ impl Actor {
                     stream.cancel_handle().cancel();
                     return;
                 }
+                if self.group_auto_accept(&device.address)
+                    && self.group_yields_connection(&device.address)
+                {
+                    if self
+                        .peer
+                        .as_ref()
+                        .is_some_and(|p| p.device.address == device.address)
+                        && self.view.peer.as_ref().is_some_and(|p| !p.ready)
+                    {
+                        self.disconnect("Gleichzeitige Gruppenkontakte werden geordnet");
+                    }
+                    if let Some(connecting) = self.connect_flag.take() {
+                        connecting.store(true, Ordering::Release);
+                    }
+                } else if self.group_auto_accept(&device.address) && self.connect_flag.is_some() {
+                    stream.cancel_handle().cancel();
+                    return;
+                }
                 if flag.load(Ordering::Acquire)
                     || self.peer.is_some()
                     || self.pending.is_some()
@@ -2519,6 +2537,7 @@ impl Actor {
                 self.error(error);
             }
             BackgroundEvent::ListenerError(error, flag) => {
+                self.pause_group_sync();
                 if flag.load(Ordering::Acquire) {
                     return;
                 }
@@ -2866,7 +2885,7 @@ impl Actor {
             }
             PeerEvent::FileCancelled(id) => self.cancel_file(id),
             PeerEvent::KeyChanged => {
-                self.group_state.sync = false;
+                self.pause_group_sync();
                 let device = self.peer.as_ref().map(|p| DeviceView {
                     name: p.device.name.clone(),
                     address: p.device.address.clone(),
@@ -3769,7 +3788,7 @@ mod tests {
         );
         assert!(runtime.try_event().is_none());
     }
-    fn actor_with_profile(
+    pub(super) fn actor_with_profile(
         directory: &tempfile::TempDir,
     ) -> anyhow::Result<(Actor, Receiver<Outbound>)> {
         let hub = Arc::new(CancellationHub::default());
@@ -3837,7 +3856,7 @@ mod tests {
         Ok(())
     }
 
-    fn attach_synthetic_peer(
+    pub(super) fn attach_synthetic_peer(
         actor: &mut Actor,
         ready: bool,
     ) -> anyhow::Result<Receiver<PeerCommand>> {

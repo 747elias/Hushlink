@@ -6,6 +6,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 mod auth;
 mod features;
+mod groups;
 mod integration;
 mod media;
 mod messenger;
@@ -206,6 +207,10 @@ impl App {
                     let changed_peer =
                         self.view.peer.as_ref().map(|p| &p.id) != view.peer.as_ref().map(|p| &p.id);
                     if changed_peer {
+                        self.composer.zeroize();
+                        self.rich.reply = None;
+                        self.rich.edit = None;
+                        self.rich.edit_text.zeroize();
                         self.fingerprint_checked = false;
                     }
                     if let Some(peer) = &view.peer
@@ -292,12 +297,24 @@ impl eframe::App for App {
                     .resizable(true)
                     .show_separator_line(false)
                     .frame(egui::Frame::new().fill(PANEL))
-                    .show(ctx, |ui| self.conversation_list(ui));
+                    .show(ctx, |ui| {
+                        if self.design.groups_open {
+                            self.group_list(ui)
+                        } else {
+                            self.conversation_list(ui)
+                        }
+                    });
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(BACKGROUND))
                     .show(ctx, |ui| {
                         if self.view.unlocked {
-                            self.messenger(ui);
+                            if self.design.groups_open {
+                                if !self.connection_safety(ui) {
+                                    self.group_chat(ui);
+                                }
+                            } else {
+                                self.messenger(ui);
+                            }
                         }
                     });
             }
@@ -320,6 +337,7 @@ impl eframe::App for App {
                 });
         }
         self.poll_media(ctx);
+        self.group_editor(ctx);
         self.settings_window(ctx);
         self.file_window(ctx);
         self.feature_windows(ctx);

@@ -1,5 +1,6 @@
 use super::*;
 use crate::groups::Packet;
+use rand::Rng;
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub enum GroupCommand {
     Create {
@@ -39,10 +40,21 @@ pub(super) struct GroupState {
     listener_owned: bool,
     pub(super) attempts: std::collections::HashSet<String>,
     last_try: std::collections::HashMap<String, Instant>,
-    pub(super) inflight: Option<String>,
+    pub(super) inflight: Option<crate::groups::Delivery>,
     pub(super) activity: Option<Instant>,
 }
 impl Actor {
+    pub(super) fn pause_group_sync(&mut self) {
+        self.group_state.sync = false;
+        self.view.group_sync = false;
+        if self.group_state.listener_owned {
+            if let Some(flag) = self.listener_flag.take() {
+                flag.store(true, Ordering::Release);
+            }
+            self.view.listening = false;
+            self.group_state.listener_owned = false;
+        }
+    }
     pub(super) fn group_command(&mut self, command: &GroupCommand) -> anyhow::Result<()> {
         if let GroupCommand::Sync(enabled) = command {
             if *enabled {
@@ -223,11 +235,16 @@ impl Actor {
             self.disconnect("Gruppenbestätigung ohne Kontaktprüfung");
             return;
         };
-        if self.group_state.inflight.as_deref() != Some(&id) {
+        if self
+            .group_state
+            .inflight
+            .as_ref()
+            .is_none_or(|d| d.id != id || d.recipient != peer)
+        {
             self.disconnect("Unerwartete Gruppenbestätigung");
             return;
         }
-        self.group_state.inflight = None;
+        let inflight = self.group_state.inflight.take();
         self.group_state.activity = Some(Instant::now());
         let Some(v) = &mut self.vault else {
             return;
@@ -239,6 +256,20 @@ impl Actor {
         {
             self.disconnect("Ungültige Gruppenbestätigung");
             return;
+        }
+        if let Some(d) = inflight
+            && let Packet::Text { group, message, .. } = &d.packet
+            && let Some(m) = v
+                .profile_mut()
+                .groups
+                .messages
+                .iter_mut()
+                .find(|m| m.group == *group && m.id == *message)
+            && !m.delivered.contains(&peer)
+            && m.recipients.contains(&peer)
+        {
+            m.cancelled.retain(|p| p != &peer);
+            m.delivered.push(peer.clone());
         }
         if !self.save() {
             self.disconnect("Gruppenbestätigung konnte nicht gespeichert werden");
@@ -276,7 +307,7 @@ impl Actor {
             .is_ok()
         {
             self.group_state.attempts.insert(d.id.clone());
-            self.group_state.inflight = Some(d.id.clone());
+            self.group_state.inflight = Some(d.clone());
             self.group_state.activity = Some(Instant::now());
         }
     }
@@ -348,14 +379,15 @@ impl Actor {
                 .group_state
                 .last_try
                 .get(&c.id)
-                .is_some_and(|t| t.elapsed() < Duration::from_secs(20))
+                .is_some_and(|t| *t > Instant::now())
             {
                 return;
             }
             let address = c.bluetooth_address.clone();
-            self.group_state
-                .last_try
-                .insert(c.id.clone(), Instant::now());
+            self.group_state.last_try.insert(
+                c.id.clone(),
+                Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(20..=35)),
+            );
             if let Err(error) = self.connect(address) {
                 self.error(error);
             }
@@ -364,14 +396,149 @@ impl Actor {
     pub(super) fn group_auto_accept(&self, address: &str) -> bool {
         self.group_state.sync
             && self.vault.as_ref().is_some_and(|v| {
-                v.profile().contacts.iter().any(|c| {
-                    c.bluetooth_address == address
-                        && v.profile()
-                            .groups
-                            .groups
-                            .iter()
-                            .any(|g| !g.closed && g.roster.members.contains(&c.id))
-                })
+                v.profile()
+                    .contacts
+                    .iter()
+                    .any(|c| c.bluetooth_address == address)
             })
+    }
+    pub(super) fn group_yields_connection(&self, address: &str) -> bool {
+        self.vault.as_ref().is_some_and(|v| {
+            v.profile()
+                .contacts
+                .iter()
+                .find(|c| c.bluetooth_address == address)
+                .is_some_and(|c| hex::encode(v.profile().identity_public) > c.id)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::groups::{Packet, Roster};
+    #[test]
+    fn groups_need_trust_and_join_and_ack_only_after_encrypted_save_and_survive_lock()
+    -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let (mut actor, _) = super::super::tests::actor_with_profile(&dir)?;
+        let queue = super::super::tests::attach_synthetic_peer(&mut actor, false)?;
+        let local = actor.view.group_identity.clone();
+        let peer = hex::encode([13; 32]);
+        actor.command(&mut Command::Group(GroupCommand::Create {
+            name: "SYNTHETIC_GROUP_TITLE_819".into(),
+            members: vec![peer.clone()],
+        }))?;
+        assert!(queue.try_recv().is_err());
+        actor
+            .view
+            .peer
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("test peer"))?
+            .ready = true;
+        actor.group_tick();
+        let PeerCommand::Group(invite_id, _) = queue.try_recv()? else {
+            anyhow::bail!("Missing group invite");
+        };
+        actor.peer_event(PeerEvent::GroupAck(invite_id));
+        let group = actor.view.groups[0].roster.id.clone();
+        actor.command(&mut Command::Group(GroupCommand::Send {
+            id: group.clone(),
+            text: "SYNTHETIC_GROUP_CONTENT_815".into(),
+        }))?;
+        actor.group_tick();
+        assert!(queue.try_recv().is_err(), "No text before group consent");
+        actor.peer_event(PeerEvent::Group {
+            id: [71; 16],
+            packet: Packet::Consent {
+                group: group.clone(),
+                revision: 1,
+                accepted: true,
+            },
+        });
+        assert!(matches!(queue.try_recv()?, PeerCommand::GroupAck(_)));
+        actor.group_tick();
+        let PeerCommand::Group(message_id, _) = queue.try_recv()? else {
+            anyhow::bail!("Missing group text");
+        };
+        actor.peer_event(PeerEvent::GroupAck(message_id));
+        assert_eq!(actor.view.group_messages[0].delivered, vec![peer.clone()]);
+        let incoming = Packet::Text {
+            group: group.clone(),
+            revision: 1,
+            message: "3".repeat(32),
+            text: "SYNTHETIC_INCOMING_GROUP_222".into(),
+        };
+        actor.peer_event(PeerEvent::Group {
+            id: [72; 16],
+            packet: incoming.clone(),
+        });
+        assert!(matches!(queue.try_recv()?, PeerCommand::GroupAck(_)));
+        let count = actor.view.group_messages.len();
+        actor.peer_event(PeerEvent::Group {
+            id: [72; 16],
+            packet: incoming,
+        });
+        assert!(matches!(queue.try_recv()?, PeerCommand::GroupAck(_)));
+        assert_eq!(actor.view.group_messages.len(), count);
+        let bytes = std::fs::read(&actor.path)?;
+        for text in [
+            "SYNTHETIC_GROUP_TITLE_819",
+            "SYNTHETIC_GROUP_CONTENT_815",
+            "SYNTHETIC_INCOMING_GROUP_222",
+        ] {
+            assert!(!bytes.windows(text.len()).any(|w| w == text.as_bytes()));
+        }
+        actor.clear();
+        assert!(
+            actor.view.groups.is_empty()
+                && actor.view.group_messages.is_empty()
+                && actor.vault.is_none()
+        );
+        assert!(
+            actor
+                .command(&mut Command::Group(GroupCommand::Send {
+                    id: group,
+                    text: "AFTER_LOCK".into()
+                }))
+                .is_err()
+        );
+        actor.command(&mut Command::Unlock {
+            password: Zeroizing::new("synthetic-password-123".into()),
+        })?;
+        assert_eq!(actor.view.group_identity, local);
+        assert_eq!(actor.view.group_messages.len(), count);
+        assert!(!actor.view.group_sync);
+        Ok(())
+    }
+    #[test]
+    fn invalid_group_or_failed_persistence_never_acknowledges_and_rolls_back() -> anyhow::Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let (mut actor, _) = super::super::tests::actor_with_profile(&dir)?;
+        let queue = super::super::tests::attach_synthetic_peer(&mut actor, true)?;
+        let local = actor.view.group_identity.clone();
+        let peer = hex::encode([13; 32]);
+        let roster = Roster {
+            id: "c".repeat(32),
+            owner: peer.clone(),
+            revision: 1,
+            name: "GROUP_SAVE_FAILURE_TEST".into(),
+            members: vec![local, peer],
+        };
+        std::fs::write(&actor.path, b"SYNTHETIC_EXTERNAL_CHANGE")?;
+        actor.peer_event(PeerEvent::Group {
+            id: [81; 16],
+            packet: Packet::Roster { roster },
+        });
+        assert!(
+            queue
+                .try_iter()
+                .all(|p| !matches!(p, PeerCommand::GroupAck(_)))
+        );
+        assert!(actor.view.groups.is_empty());
+        assert!(actor.peer.is_none());
+        assert_eq!(std::fs::read(&actor.path)?, b"SYNTHETIC_EXTERNAL_CHANGE");
+        Ok(())
     }
 }

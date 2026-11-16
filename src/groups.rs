@@ -136,6 +136,8 @@ pub struct Message {
     pub timestamp_ms: u64,
     pub recipients: Vec<String>,
     pub delivered: Vec<String>,
+    #[serde(default)]
+    pub cancelled: Vec<String>,
 }
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(deny_unknown_fields)]
@@ -238,6 +240,20 @@ impl Store {
                 );
             }
         }
+        for m in &self.messages {
+            ensure!(
+                m.cancelled.len() + m.delivered.len() <= m.recipients.len(),
+                "Ungültige abgebrochene Zustellung."
+            );
+            for (i, peer) in m.cancelled.iter().enumerate() {
+                ensure!(
+                    m.recipients.contains(peer)
+                        && !m.delivered.contains(peer)
+                        && !m.cancelled[..i].contains(peer),
+                    "Ungültiger Zustellabbruch."
+                );
+            }
+        }
         for (i, d) in self.outbox.iter().enumerate() {
             d.packet.encode()?;
             ensure!(
@@ -259,6 +275,24 @@ impl Store {
             );
         }
         Ok(())
+    }
+    fn cancel_where(&mut self, keep: impl Fn(&Delivery) -> bool) {
+        let messages = &mut self.messages;
+        self.outbox.retain(|d| {
+            if keep(d) {
+                return true;
+            }
+            if let Packet::Text { group, message, .. } = &d.packet
+                && let Some(m) = messages
+                    .iter_mut()
+                    .find(|m| m.group == *group && m.id == *message)
+                && !m.delivered.contains(&d.recipient)
+                && !m.cancelled.contains(&d.recipient)
+            {
+                m.cancelled.push(d.recipient.clone());
+            }
+            false
+        });
     }
     fn enqueue(&mut self, recipient: String, packet: Packet) -> Result<()> {
         packet.encode()?;
@@ -344,7 +378,7 @@ impl Store {
             self.outbox.len() + old.members.len() + roster.members.len() <= MAX_OUTBOX,
             "Gruppenwarteschlange voll."
         );
-        self.outbox.retain(|d| d.packet.group() != group);
+        self.cancel_where(|d| d.packet.group() != group);
         for removed in old.members.iter().filter(|m| !roster.members.contains(m)) {
             self.enqueue(
                 removed.clone(),
@@ -387,7 +421,7 @@ impl Store {
             self.outbox.len() + roster.members.len() <= MAX_OUTBOX,
             "Gruppenwarteschlange voll."
         );
-        self.outbox.retain(|d| {
+        self.cancel_where(|d| {
             !(d.packet.group() == group
                 && matches!(d.packet, Packet::Text { .. } | Packet::Consent { .. }))
         });
@@ -431,8 +465,9 @@ impl Store {
             self.outbox.len() + roster.members.len() <= MAX_OUTBOX,
             "Gruppenwarteschlange voll."
         );
-        self.outbox
-            .retain(|d| !(d.packet.group() == group && matches!(d.packet, Packet::Text { .. })));
+        self.cancel_where(|d| {
+            !(d.packet.group() == group && matches!(d.packet, Packet::Text { .. }))
+        });
         for m in others(&roster, local) {
             self.enqueue(
                 m,
@@ -484,6 +519,7 @@ impl Store {
             timestamp_ms: now,
             recipients,
             delivered: vec![],
+            cancelled: vec![],
         });
         Ok(())
     }
@@ -556,16 +592,18 @@ impl Store {
                 );
                 if let Some(g) = self.groups.iter_mut().find(|g| g.roster.id == roster.id) {
                     ensure!(
-                        g.roster.owner == peer
-                            && !g.closed
-                            && roster.revision == g.roster.revision + 1,
+                        g.roster.owner == peer && !g.closed && roster.revision > g.roster.revision,
                         "Unzulässiger Besitzer- oder Versionswechsel."
                     );
                     g.roster = roster.clone();
                     g.active = false;
                     g.accepted = vec![peer.into()];
                     g.departed.clear();
-                    self.outbox.retain(|d| d.packet.group() != roster.id);
+                    g.unread = g
+                        .unread
+                        .saturating_add(1)
+                        .min(crate::vault::MAX_MESSAGES as u32);
+                    self.cancel_where(|d| d.packet.group() != roster.id);
                 } else {
                     ensure!(self.groups.len() < MAX_GROUPS, "Zu viele Gruppen.");
                     self.groups.push(Group {
@@ -574,7 +612,7 @@ impl Store {
                         closed: false,
                         accepted: vec![peer.into()],
                         departed: vec![],
-                        unread: 0,
+                        unread: 1,
                     });
                 }
             }
@@ -607,7 +645,7 @@ impl Store {
                     g.departed.push(peer.into());
                 }
                 if !accepted {
-                    self.outbox.retain(|d| {
+                    self.cancel_where(|d| {
                         !(d.recipient == peer
                             && d.packet.group() == *group
                             && matches!(d.packet, Packet::Text { .. }))
@@ -654,6 +692,7 @@ impl Store {
                     timestamp_ms: now,
                     recipients: vec![],
                     delivered: vec![],
+                    cancelled: vec![],
                 });
             }
             Packet::Close { group, revision } => {
@@ -664,7 +703,7 @@ impl Store {
                     );
                     g.active = false;
                     g.closed = true;
-                    self.outbox.retain(|d| d.packet.group() != *group);
+                    self.cancel_where(|d| d.packet.group() != *group);
                 }
             }
         }

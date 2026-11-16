@@ -79,6 +79,7 @@ impl App {
             runtime.notifications().set_foreground(foreground);
         }
         if foreground
+            && !self.design.groups_open
             && let Some(c) = self
                 .view
                 .contacts
@@ -103,7 +104,9 @@ impl App {
             .view
             .peer
             .as_ref()
-            .filter(|p| p.ready && self.selected.as_deref() == Some(&p.id))
+            .filter(|p| {
+                !self.design.groups_open && p.ready && self.selected.as_deref() == Some(&p.id)
+            })
             .map(|p| p.id.clone());
         self.features
             .sync_drop(self.view.unlocked, target.as_deref());

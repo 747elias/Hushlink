@@ -179,3 +179,26 @@ fn tampered_retries_history_deletion_and_parser_limits() -> Result<()> {
     assert!(escaped.encode().is_err());
     Ok(())
 }
+
+#[test]
+fn offline_members_can_skip_roster_snapshots_but_not_roll_back_or_resurrect_cancelled_deliveries()
+-> Result<()> {
+    let (a, b) = (member('a'), member('b'));
+    let (mut x, mut y, _, g) = trio()?;
+    x.send(&a, &g, "Nicht mehr übertragen".into(), 0)?;
+    x.update(&a, &g, "Liste 2".into(), vec![b.clone()])?;
+    assert_eq!(x.messages[0].cancelled.len(), 2);
+    x.update(&a, &g, "Liste 3".into(), vec![b.clone()])?;
+    deliver(&mut x, &mut y, &a, &b)?;
+    assert_eq!(y.groups[0].roster.revision, 3);
+    assert!(!y.groups[0].active);
+    let mut old = y.groups[0].roster.clone();
+    old.revision = 2;
+    assert!(
+        y.receive(&b, &a, &"a".repeat(32), &Packet::Roster { roster: old }, 0)
+            .is_err()
+    );
+    x.validate(&a)?;
+    y.validate(&b)?;
+    Ok(())
+}

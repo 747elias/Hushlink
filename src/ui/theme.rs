@@ -99,6 +99,7 @@ pub(super) fn configure(ctx: &egui::Context) {
 
 #[derive(Clone, Copy)]
 pub(super) enum Icon {
+    Group,
     Chat,
     Search,
     Plus,
@@ -134,6 +135,15 @@ pub(super) fn icon(p: &egui::Painter, rect: Rect, kind: Icon, color: Color32) {
         ));
     };
     match kind {
+        Icon::Group => {
+            p.circle_stroke(point(0.0, -0.38), size * 0.25, stroke);
+            p.circle_stroke(point(-0.64, -0.15), size * 0.18, stroke);
+            p.circle_stroke(point(0.64, -0.15), size * 0.18, stroke);
+            line(&[(-0.43, 0.65), (-0.35, 0.23), (0.35, 0.23), (0.43, 0.65)]);
+            line(&[(-0.84, 0.58), (-0.78, 0.19), (-0.56, 0.19)]);
+            line(&[(0.84, 0.58), (0.78, 0.19), (0.56, 0.19)]);
+        }
+
         Icon::Chat => {
             p.rect_stroke(
                 Rect::from_min_max(point(-0.72, -0.62), point(0.72, 0.48)),
